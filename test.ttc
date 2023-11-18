@@ -1,0 +1,2 @@
+int exit_code = 32;
+exit exit_code;
