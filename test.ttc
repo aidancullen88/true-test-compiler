@@ -1,2 +1,1 @@
-int exit_code = 32;
-exit exit_code;
+32 + 4 / 6

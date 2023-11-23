@@ -1,7 +1,8 @@
 //use clap::Parser;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Write;
+use std::collections::VecDeque;
+// use std::fs::File;
+// use std::io::Write;
 use std::path::PathBuf;
 
 // #[derive(Parser, Debug)]
@@ -16,8 +17,10 @@ fn main() {
     let file_path = PathBuf::from("/home/aidan/PROJECTS/testcomp/test.ttc"); // for debug! change this
     let raw_code = std::fs::read_to_string(file_path).unwrap();
 
-    let lexed_line = lexer(raw_code);
+    let mut lexed_line = lexer(raw_code);
     println!("{:#?}", lexed_line);
+
+    parse_tokens(&mut lexed_line);
 
     // let mut asm_file = File::create("test.asm").unwrap();
 
@@ -37,24 +40,45 @@ enum TokenType {
     Identifier,
     Assign,
     IsEqual,
+    NotEqual,
+    True,
+    False,
+    Subtract,
+    Add,
+    Divide,
+    Multiply,
+    Greater,
+    Less,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Token {
-    token: TokenType,
-    value: Option<String>,
+    token_type: TokenType,
+    value: Option<Value>,
     lexeme: String,
     line_number: usize,
     line_index: usize,
 }
 
-fn lexer(mut src: String) -> Vec<Token> {
+#[derive(Debug, Clone)]
+enum Value {
+    Bool(bool),
+    Int(i32),
+}
+
+fn lexer(mut src: String) -> VecDeque<Token> {
     let single_char_keys = HashMap::from([
         (';', TokenType::Semi),
         ('(', TokenType::LeftParen),
         (')', TokenType::RightParen),
+        ('-', TokenType::Subtract),
+        ('/', TokenType::Divide),
+        ('*', TokenType::Multiply),
+        ('+', TokenType::Add),
+        ('>', TokenType::Greater),
+        ('<', TokenType::Less),
     ]);
-    let mut tokens = Vec::<Token>::new();
+    let mut tokens = VecDeque::<Token>::new();
     // src_index keeps the total position in the src
     let mut src_index = 0;
     let src_length = src.len();
@@ -81,7 +105,7 @@ fn lexer(mut src: String) -> Vec<Token> {
         //      of chars consumed
         match single_char_keys.get(&first_char) {
             Some(token_type) => {
-                tokens.push(consume_token(
+                tokens.push_back(consume_token(
                     &mut src,
                     1,
                     token_type.clone(),
@@ -108,14 +132,14 @@ fn lexer(mut src: String) -> Vec<Token> {
                 '=' => {
                     let (token, index) =
                         check_multi_char_operator(&mut src, line_number, line_index, '=');
-                    tokens.push(token);
+                    tokens.push_back(token);
                     src_index += index;
                     line_index += index;
                 }
                 _ => {
                     let (token, index) =
                         check_literal_identifier_or_keyword(&mut src, line_number, line_index);
-                    tokens.push(token);
+                    tokens.push_back(token);
                     src_index += index;
                     line_index += index;
                 }
@@ -129,7 +153,7 @@ fn consume_token(
     src: &mut String,
     chars_to_consume: usize,
     token_type: TokenType,
-    value: Option<String>,
+    value: Option<Value>,
     line_number: usize,
     line_index: usize,
 ) -> Token {
@@ -138,7 +162,7 @@ fn consume_token(
     println!("lexeme is {}", &lexeme.as_str());
     // Return the token created
     Token {
-        token: token_type.clone(),
+        token_type: token_type.clone(),
         value,
         lexeme: lexeme.as_str().to_string(),
         line_number,
@@ -153,6 +177,10 @@ fn check_literal_identifier_or_keyword(
 ) -> (Token, usize) {
     // Could find a better way to store this Hashmap but w/e
     let lexume_keys: HashMap<&str, TokenType> = HashMap::from([("exit", TokenType::Exit)]);
+    // let literal_keys: HashMap<&str, TokenType> = HashMap::from([
+    //     ("true", TokenType::True),
+    //     ("false", TokenType::False),
+    // ]);
     let lexume_index: usize;
     //let mut broke = false;
     let lexeme: &str;
@@ -180,17 +208,39 @@ fn check_literal_identifier_or_keyword(
                     src,
                     lexume_index,
                     TokenType::IntLit,
-                    Some(lexeme.to_string()),
+                    Some(Value::Int(lexeme.to_string().parse::<i32>().expect(
+                        "Should always be able to parse a number literal to a number",
+                    ))),
                     line_number,
                     line_index,
                 ),
                 lexume_index,
             );
         }
-        _ =>
-        // if it's not a literal must be a id or kw, check the hashmap!
-        {
-            match lexume_keys.get(&src[..lexume_index]) {
+        _ => match lexeme {
+            "true" => (
+                consume_token(
+                    src,
+                    lexume_index,
+                    TokenType::True,
+                    Some(Value::Bool(true)),
+                    line_number,
+                    line_index,
+                ),
+                lexume_index,
+            ),
+            "false" => (
+                consume_token(
+                    src,
+                    lexume_index,
+                    TokenType::False,
+                    Some(Value::Bool(false)),
+                    line_number,
+                    line_index,
+                ),
+                lexume_index,
+            ),
+            _ => match lexume_keys.get(lexeme) {
                 Some(token_type) => (
                     consume_token(
                         src,
@@ -213,8 +263,8 @@ fn check_literal_identifier_or_keyword(
                     ),
                     lexume_index,
                 ),
-            }
-        }
+            },
+        },
     }
 }
 
@@ -232,7 +282,7 @@ fn check_multi_char_operator(
     line_index: usize,
     to_match: char,
 ) -> (Token, usize) {
-    let two_char_ops = HashMap::from([("==", TokenType::IsEqual)]);
+    let two_char_ops = HashMap::from([("==", TokenType::IsEqual), ("!=", TokenType::NotEqual)]);
     let one_char_ops = HashMap::from([('=', TokenType::Assign)]);
     // Match the next char in src
     match look_ahead(src, to_match) {
@@ -284,105 +334,301 @@ fn look_ahead(src: &str, to_match: char) -> bool {
     }
 }
 
-// This is temporary as in future will build from parse tree
-fn build_asm(mut token_list: Vec<Token>) -> String {
-    let mut asm_code = String::new();
-    while token_list.len() != 0 {
-        match token_list[0].token {
-            // make this whole hierarchy better
-            TokenType::Exit => {
-                if token_list.len() < 3 {
-                    asm_code.push_str("not enough tokens idiot!");
-                    break;
-                }
-                token_list.remove(0); // move removes to end
-                let should_be_semi = token_list.remove(1);
-                match should_be_semi.token {
-                    TokenType::Semi => asm_code.push_str(
-                        format_return(&token_list.remove(0).value.clone().expect("value")).as_str(),
-                    ),
-                    _ => asm_code.push_str("Should be a semicolon!"),
-                }
-            }
+fn parse_tokens(tokens: &mut VecDeque<Token>) {
+    let mut expression_list = VecDeque::<Expression>::new();
 
-            _ => asm_code.push_str("Unrecognised Syntax!"),
+    while tokens.len() != 0 {
+        expression_list.push_back(parse_expression(tokens))
+    }
+
+    println!("{:#?}", expression_list);
+}
+
+fn parse_expression(tokens: &mut VecDeque<Token>) -> Expression {
+    Expression::Equality(parse_equality(tokens))
+}
+
+fn parse_equality(tokens: &mut VecDeque<Token>) -> Equality {
+    let mut left = EqualityChoice::Comparison(parse_comparision(tokens));
+    let mut operator: Option<Token> = None;
+    let mut right: Option<Comparison> = None;
+    while let Some(token) = tokens.pop_front() {
+        match token.token_type {
+            TokenType::IsEqual | TokenType::NotEqual => {
+                left = EqualityChoice::Equality(Equality {
+                    left: Box::new(left),
+                    operator: operator.clone(),
+                    right: right.clone(),
+                });
+                operator = Some(token);
+                right = Some(parse_comparision(tokens));
+            }
+            _ => {
+                tokens.push_front(token);
+                break;
+            }
         }
     }
-    asm_code
+    Equality {
+        left: Box::new(left),
+        operator,
+        right,
+    }
 }
 
-fn format_return(return_value: &str) -> String {
-    format!(
-        r#"global _start
-
-section .text
-
-_start:
-    mov rax, 60
-    mov rdi, {return_value}
-    syscall"#
-    )
+fn parse_comparision(tokens: &mut VecDeque<Token>) -> Comparison {
+    let mut left = ComparisonChoice::Term(parse_term(tokens));
+    let mut operator: Option<Token> = None;
+    let mut right: Option<Term> = None;
+    while let Some(token) = tokens.pop_front() {
+        match token.token_type {
+            TokenType::Greater | TokenType::Less => {
+                left = ComparisonChoice::Comparison(Comparison {
+                    left: Box::new(left),
+                    operator: operator.clone(),
+                    right: right.clone(),
+                });
+                operator = Some(token);
+                right = Some(parse_term(tokens));
+            }
+            _ => {
+                tokens.push_front(token);
+                break;
+            }
+        }
+    }
+    Comparison {
+        left: Box::new(left),
+        operator,
+        right,
+    }
 }
 
-// fn lex_code(raw_code: String) -> Vec<Token> {
-//     let mut token_vec = Vec::<Token>::new();
-//     let mut char_buffer = String::new();
-//     for c in raw_code.chars() {
-//         if c.is_alphanumeric() {
-//             char_buffer.push(c);
-//         } else {
-//             // if there's characters in the buffer (i.e. not two whitespace in a row)
-//             // then match the buffer to a token and save the token to token_vec
-//             if char_buffer.len() != 0 {
-//                 let first_char = char_buffer.as_bytes()[0];
-//                 if first_char.is_ascii_alphabetic() {
-//                     match char_buffer.as_str() {
-//                         "exit" => token_vec.push(Token {
-//                             token: TokenType::Exit,
-//                             value: None,
-//                         }),
-//                         _ => token_vec.push(Token {
-//                             token: TokenType::Invalid,
-//                             value: None,
-//                         }),
-//                     }
-//                 } else if first_char.is_ascii_digit() {
-//                     token_vec.push(Token {
-//                         token: TokenType::IntLit,
-//                         value: Some(char_buffer),
-//                     })
-//                 }
-//                 // If we're currently at the end of a statement, we want to save the
-//                 // ';' as well, so check for that!
-//                 if c == ';' {
-//                     token_vec.push(Token {
-//                         token: TokenType::Semi,
-//                         value: None,
-//                     })
-//                 }
-//                 // clear the buffer to read in the next character
-//                 char_buffer.clear();
-//             // If the char buffer is empty that means 2 non alpha-num characters
-//             // in a row. This would be fine for ws but not for ; :(
-//             } else {
-//                 continue;
-//             }
-//         }
-//     }
-//     token_vec
+fn parse_term(tokens: &mut VecDeque<Token>) -> Term {
+    let mut left = TermChoice::Factor(parse_factor(tokens));
+    let mut operator: Option<Token> = None;
+    let mut right: Option<Factor> = None;
+    while let Some(token) = tokens.pop_front() {
+        match token.token_type {
+            TokenType::Add | TokenType::Subtract => {
+                left = TermChoice::Term(Term {
+                    left: Box::new(left),
+                    operator: operator.clone(),
+                    right: right.clone(),
+                });
+                operator = Some(token);
+                right = Some(parse_factor(tokens));
+            }
+            _ => {
+                tokens.push_front(token);
+                break;
+            }
+        }
+    }
+    Term {
+        left: Box::new(left),
+        operator,
+        right,
+    }
+}
+
+fn parse_factor(tokens: &mut VecDeque<Token>) -> Expression {
+    let mut expr = parse_unary(tokens);
+    while let Some(token) = tokens.pop_front() {
+        match token.token_type {
+            TokenType::Divide | TokenType::Multiply => {
+                expr = Expression::Binary(Box::new(expr), token, Box::new(parse_unary(tokens)));
+            }
+            _ => {
+                tokens.push_front(token);
+                break;
+            }
+        }
+    }
+
+    expr
+}
+
+fn parse_unary(tokens: &mut VecDeque<Token>) -> Expression {
+    let first_token = &tokens[0];
+    match first_token.token_type {
+        TokenType::Subtract => Expression::Unary(
+            tokens
+                .pop_front()
+                .expect("Should always be at least 1 element in tokens"),
+            Box::new(parse_expression(tokens)),
+        ),
+
+        _ => parse_literal(tokens),
+    }
+}
+
+fn parse_literal(tokens: &mut VecDeque<Token>) -> Expression {
+    let first_token = &tokens[0];
+    match first_token.token_type {
+        TokenType::True | TokenType::False => {
+            let literal_value: bool;
+            if let Value::Bool(lv) = tokens
+                .pop_front()
+                .expect("Should always be at least one element in the queue")
+                .value
+                .expect("Bool tokentype should always have a value")
+            {
+                literal_value = lv;
+            } else {
+                panic!("Found int value in bool token")
+            }
+            Expression::Literal(LiteralType::Bool(literal_value))
+        }
+        TokenType::IntLit => {
+            let literal_value: i32;
+            if let Value::Int(lv) = tokens
+                .pop_front()
+                .expect("Should always be at least 1 element in the queue")
+                .value
+                .expect("IntLit tokentype should always have a value")
+            {
+                literal_value = lv;
+            } else {
+                panic!("Found bool in int token")
+            }
+            Expression::Literal(LiteralType::Int(literal_value))
+        }
+        _ => panic!("Whoops! can't deal with this yet"),
+    }
+}
+
+#[derive(Debug, Clone)]
+enum Expression {
+    Binary(Box<Expression>, Token, Box<Expression>),
+    Unary(Token, Box<Expression>),
+    Literal(LiteralType),
+}
+
+#[derive(Debug, Clone)]
+enum LiteralType {
+    Int(i32),
+    Bool(bool),
+}
+
+// #[derive(Debug, Clone)]
+// struct Equality {
+//     left: Box<EqualityChoice>,
+//     operator: Option<Token>,
+//     right: Option<Comparison>,
 // }
 
-// fn consume_raw_code(raw_code: String) -> (Option<String>, String) {
-//     let mut char_buffer = String::new();
-//     for (i, c) in raw_code.chars().enumerate() {
-//         if c.is_alphanumeric() {
-//             char_buffer.push(c);
-//         } else if c.is_ascii_whitespace() {
-//             match char_buffer.as_str() {
-//                 "ret" => return (Some(char_buffer), raw_code),
-//                 _ => return (None, raw_code),
+// #[derive(Debug, Clone)]
+// enum EqualityChoice {
+//     Equality(Equality),
+//     Comparison(Comparison),
+// }
+
+// #[derive(Debug, Clone)]
+// struct Comparison {
+//     left: Box<ComparisonChoice>,
+//     operator: Option<Token>,
+//     right: Option<Term>,
+// }
+
+// #[derive(Debug, Clone)]
+// enum ComparisonChoice {
+//     Comparison(Comparison),
+//     Term(Term),
+// }
+
+// #[derive(Debug, Clone)]
+// struct Term {
+//     left: Box<TermChoice>,
+//     operator: Option<Token>,
+//     right: Option<Factor>,
+// }
+
+// #[derive(Debug, Clone)]
+// enum TermChoice {
+//     Term(Term),
+//     Factor(Factor),
+// }
+
+// #[derive(Debug, Clone)]
+// struct Factor {
+//     left: Box<FactorChoice>,
+//     operator: Option<Token>,
+//     right: Option<Unary>,
+// }
+
+// #[derive(Debug, Clone)]
+// enum FactorChoice {
+//     Factor(Factor),
+//     Unary(Unary),
+// }
+
+// #[derive(Debug, Clone)]
+// struct Unary {
+//     operator: Option<Token>,
+//     right: Box<UnaryChoice>,
+// }
+
+// #[derive(Debug, Clone)]
+// enum UnaryChoice {
+//     Unary(Unary),
+//     Primary(Primary),
+// }
+
+// #[derive(Debug, Clone)]
+// enum Primary {
+//     Literal(Literal),
+//     // Grouping(Grouping),
+// }
+
+// // struct Grouping {
+// //     left: Token,
+// //     expression: Expression,
+// //     right: Token,
+// // }
+
+// #[derive(Debug, Clone)]
+// enum Literal {
+//     Bool(bool),
+//     Int(isize),
+// }
+
+// // This is temporary as in future will build from parse tree
+// fn build_asm(mut token_list: Vec<Token>) -> String {
+//     let mut asm_code = String::new();
+//     while token_list.len() != 0 {
+//         match token_list[0].token {
+//             // make this whole hierarchy better
+//             TokenType::Exit => {
+//                 if token_list.len() < 3 {
+//                     asm_code.push_str("not enough tokens idiot!");
+//                     break;
+//                 }
+//                 token_list.remove(0); // move removes to end
+//                 let should_be_semi = token_list.remove(1);
+//                 match should_be_semi.token {
+//                     TokenType::Semi => asm_code.push_str(
+//                         format_return(&token_list.remove(0).value.clone().expect("value")).as_str(),
+//                     ),
+//                     _ => asm_code.push_str("Should be a semicolon!"),
+//                 }
 //             }
-//         if
+
+//             _ => asm_code.push_str("Unrecognised Syntax!"),
+//         }
 //     }
-//     (None, "".to_string())
-// }}
+//     asm_code
+// }
+
+// fn format_return(return_value: &str) -> String {
+//     format!(
+//         r#"global _start
+
+// section .text
+
+// _start:
+//     mov rax, 60
+//     mov rdi, {return_value}
+//     syscall"#
+//     )
+// }
