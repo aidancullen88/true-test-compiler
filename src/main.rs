@@ -1,3 +1,4 @@
+use core::panic;
 //use clap::Parser;
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -18,9 +19,15 @@ fn main() {
     let raw_code = std::fs::read_to_string(file_path).unwrap();
 
     let mut lexed_line = lexer(raw_code);
-    println!("{:#?}", lexed_line);
+    println!("TOKENS: {:#?}\n\n", lexed_line);
 
-    parse_tokens(&mut lexed_line);
+    let expressions = parse_tokens(&mut lexed_line);
+
+    println!("\n");
+
+    ast_pretty_printer(&expressions[0]);
+
+    println!("\n");
 
     // let mut asm_file = File::create("test.asm").unwrap();
 
@@ -334,7 +341,7 @@ fn look_ahead(src: &str, to_match: char) -> bool {
     }
 }
 
-fn parse_tokens(tokens: &mut VecDeque<Token>) {
+fn parse_tokens(tokens: &mut VecDeque<Token>) -> VecDeque<Expression> {
     let mut expression_list = VecDeque::<Expression>::new();
 
     while tokens.len() != 0 {
@@ -342,26 +349,20 @@ fn parse_tokens(tokens: &mut VecDeque<Token>) {
     }
 
     println!("{:#?}", expression_list);
+    expression_list
 }
 
 fn parse_expression(tokens: &mut VecDeque<Token>) -> Expression {
-    Expression::Equality(parse_equality(tokens))
+    parse_equality(tokens)
 }
 
-fn parse_equality(tokens: &mut VecDeque<Token>) -> Equality {
-    let mut left = EqualityChoice::Comparison(parse_comparision(tokens));
-    let mut operator: Option<Token> = None;
-    let mut right: Option<Comparison> = None;
+fn parse_equality(tokens: &mut VecDeque<Token>) -> Expression {
+    let mut expr = parse_comparision(tokens);
     while let Some(token) = tokens.pop_front() {
         match token.token_type {
             TokenType::IsEqual | TokenType::NotEqual => {
-                left = EqualityChoice::Equality(Equality {
-                    left: Box::new(left),
-                    operator: operator.clone(),
-                    right: right.clone(),
-                });
-                operator = Some(token);
-                right = Some(parse_comparision(tokens));
+                expr =
+                    Expression::Binary(Box::new(expr), token, Box::new(parse_comparision(tokens)));
             }
             _ => {
                 tokens.push_front(token);
@@ -369,27 +370,16 @@ fn parse_equality(tokens: &mut VecDeque<Token>) -> Equality {
             }
         }
     }
-    Equality {
-        left: Box::new(left),
-        operator,
-        right,
-    }
+
+    expr
 }
 
-fn parse_comparision(tokens: &mut VecDeque<Token>) -> Comparison {
-    let mut left = ComparisonChoice::Term(parse_term(tokens));
-    let mut operator: Option<Token> = None;
-    let mut right: Option<Term> = None;
+fn parse_comparision(tokens: &mut VecDeque<Token>) -> Expression {
+    let mut expr = parse_term(tokens);
     while let Some(token) = tokens.pop_front() {
         match token.token_type {
             TokenType::Greater | TokenType::Less => {
-                left = ComparisonChoice::Comparison(Comparison {
-                    left: Box::new(left),
-                    operator: operator.clone(),
-                    right: right.clone(),
-                });
-                operator = Some(token);
-                right = Some(parse_term(tokens));
+                expr = Expression::Binary(Box::new(expr), token, Box::new(parse_term(tokens)));
             }
             _ => {
                 tokens.push_front(token);
@@ -397,27 +387,16 @@ fn parse_comparision(tokens: &mut VecDeque<Token>) -> Comparison {
             }
         }
     }
-    Comparison {
-        left: Box::new(left),
-        operator,
-        right,
-    }
+
+    expr
 }
 
-fn parse_term(tokens: &mut VecDeque<Token>) -> Term {
-    let mut left = TermChoice::Factor(parse_factor(tokens));
-    let mut operator: Option<Token> = None;
-    let mut right: Option<Factor> = None;
+fn parse_term(tokens: &mut VecDeque<Token>) -> Expression {
+    let mut expr = parse_factor(tokens);
     while let Some(token) = tokens.pop_front() {
         match token.token_type {
             TokenType::Add | TokenType::Subtract => {
-                left = TermChoice::Term(Term {
-                    left: Box::new(left),
-                    operator: operator.clone(),
-                    right: right.clone(),
-                });
-                operator = Some(token);
-                right = Some(parse_factor(tokens));
+                expr = Expression::Binary(Box::new(expr), token, Box::new(parse_factor(tokens)));
             }
             _ => {
                 tokens.push_front(token);
@@ -425,11 +404,8 @@ fn parse_term(tokens: &mut VecDeque<Token>) -> Term {
             }
         }
     }
-    Term {
-        left: Box::new(left),
-        operator,
-        right,
-    }
+
+    expr
 }
 
 fn parse_factor(tokens: &mut VecDeque<Token>) -> Expression {
@@ -458,43 +434,77 @@ fn parse_unary(tokens: &mut VecDeque<Token>) -> Expression {
                 .expect("Should always be at least 1 element in tokens"),
             Box::new(parse_expression(tokens)),
         ),
-
-        _ => parse_literal(tokens),
+        _ => parse_primary(tokens),
     }
 }
 
-fn parse_literal(tokens: &mut VecDeque<Token>) -> Expression {
-    let first_token = &tokens[0];
-    match first_token.token_type {
-        TokenType::True | TokenType::False => {
-            let literal_value: bool;
-            if let Value::Bool(lv) = tokens
-                .pop_front()
-                .expect("Should always be at least one element in the queue")
-                .value
-                .expect("Bool tokentype should always have a value")
-            {
-                literal_value = lv;
-            } else {
-                panic!("Found int value in bool token")
+fn parse_primary(tokens: &mut VecDeque<Token>) -> Expression {
+    if let Some(token) = tokens.pop_front() {
+        match token.token_type {
+            TokenType::True | TokenType::False => {
+                let literal_value: bool;
+                if let Some(Value::Bool(lv)) = token.value {
+                    Expression::Primary(Primary::Bool(lv))
+                } else {
+                    panic!("Whoops, either no value or not a bool")
+                }
             }
-            Expression::Literal(LiteralType::Bool(literal_value))
-        }
-        TokenType::IntLit => {
-            let literal_value: i32;
-            if let Value::Int(lv) = tokens
-                .pop_front()
-                .expect("Should always be at least 1 element in the queue")
-                .value
-                .expect("IntLit tokentype should always have a value")
-            {
-                literal_value = lv;
-            } else {
-                panic!("Found bool in int token")
+            TokenType::IntLit => {
+                let literal_value: i32;
+                if let Some(Value::Int(lv)) = token.value {
+                    Expression::Primary(Primary::Int(lv))
+                } else {
+                    panic!("Found bool in int token")
+                }
             }
-            Expression::Literal(LiteralType::Int(literal_value))
+            TokenType::LeftParen => {
+                let left = token;
+                let expr = parse_expression(tokens);
+                if let Some(next_token) = tokens.pop_front() {
+                    match next_token.token_type {
+                        TokenType::RightParen => {
+                            Expression::Primary(Primary::Group(left, Box::new(expr), next_token))
+                        }
+                        _ => panic!("Didn't match group"),
+                    }
+                } else {
+                    panic!("ran out of tokens before group finished")
+                }
+            }
+            _ => panic!("Whoops! can't deal with this yet"),
         }
-        _ => panic!("Whoops! can't deal with this yet"),
+    } else {
+        panic!("no error handling yet");
+    }
+}
+
+fn ast_pretty_printer(expr: &Expression) {
+    match expr {
+        Expression::Binary(left, op, right) => {
+            print!("( ");
+
+            ast_pretty_printer(left);
+            print!(" {} ", op.lexeme);
+            ast_pretty_printer(right);
+            print!(" )");
+        }
+        Expression::Unary(op, right) => {
+            print!("{}", op.lexeme);
+            ast_pretty_printer(right);
+        }
+        Expression::Primary(primary) => match primary {
+            Primary::Bool(lit) => {
+                print!("{}", lit);
+            }
+            Primary::Int(lit) => {
+                print!("{}", lit);
+            }
+            Primary::Group(_, inner_expr, _) => {
+                print!("[ group ");
+                ast_pretty_printer(inner_expr);
+                print!(" ]");
+            }
+        },
     }
 }
 
@@ -502,96 +512,15 @@ fn parse_literal(tokens: &mut VecDeque<Token>) -> Expression {
 enum Expression {
     Binary(Box<Expression>, Token, Box<Expression>),
     Unary(Token, Box<Expression>),
-    Literal(LiteralType),
+    Primary(Primary),
 }
 
 #[derive(Debug, Clone)]
-enum LiteralType {
+enum Primary {
     Int(i32),
     Bool(bool),
+    Group(Token, Box<Expression>, Token),
 }
-
-// #[derive(Debug, Clone)]
-// struct Equality {
-//     left: Box<EqualityChoice>,
-//     operator: Option<Token>,
-//     right: Option<Comparison>,
-// }
-
-// #[derive(Debug, Clone)]
-// enum EqualityChoice {
-//     Equality(Equality),
-//     Comparison(Comparison),
-// }
-
-// #[derive(Debug, Clone)]
-// struct Comparison {
-//     left: Box<ComparisonChoice>,
-//     operator: Option<Token>,
-//     right: Option<Term>,
-// }
-
-// #[derive(Debug, Clone)]
-// enum ComparisonChoice {
-//     Comparison(Comparison),
-//     Term(Term),
-// }
-
-// #[derive(Debug, Clone)]
-// struct Term {
-//     left: Box<TermChoice>,
-//     operator: Option<Token>,
-//     right: Option<Factor>,
-// }
-
-// #[derive(Debug, Clone)]
-// enum TermChoice {
-//     Term(Term),
-//     Factor(Factor),
-// }
-
-// #[derive(Debug, Clone)]
-// struct Factor {
-//     left: Box<FactorChoice>,
-//     operator: Option<Token>,
-//     right: Option<Unary>,
-// }
-
-// #[derive(Debug, Clone)]
-// enum FactorChoice {
-//     Factor(Factor),
-//     Unary(Unary),
-// }
-
-// #[derive(Debug, Clone)]
-// struct Unary {
-//     operator: Option<Token>,
-//     right: Box<UnaryChoice>,
-// }
-
-// #[derive(Debug, Clone)]
-// enum UnaryChoice {
-//     Unary(Unary),
-//     Primary(Primary),
-// }
-
-// #[derive(Debug, Clone)]
-// enum Primary {
-//     Literal(Literal),
-//     // Grouping(Grouping),
-// }
-
-// // struct Grouping {
-// //     left: Token,
-// //     expression: Expression,
-// //     right: Token,
-// // }
-
-// #[derive(Debug, Clone)]
-// enum Literal {
-//     Bool(bool),
-//     Int(isize),
-// }
 
 // // This is temporary as in future will build from parse tree
 // fn build_asm(mut token_list: Vec<Token>) -> String {

@@ -1,3 +1,5 @@
 maybe: generic functions that parse expressions?
 
 maybe shift literal parsing to parse step rather than lexer
+
+for AST print: match on literal, if yes print bracket, if not recurse function
