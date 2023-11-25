@@ -1,6 +1,6 @@
 use core::panic;
 //use clap::Parser;
-use std::collections::HashMap;
+//use std::collections::HashMap;
 use std::collections::VecDeque;
 // use std::fs::File;
 // use std::io::Write;
@@ -25,7 +25,7 @@ fn main() {
 
     println!("\n");
 
-    ast_pretty_printer(&expressions[0]);
+    //ast_pretty_printer(&expressions[0]);
 
     println!("\n");
 
@@ -37,54 +37,21 @@ fn main() {
 }
 
 #[derive(Debug, Clone)]
-enum TokenType {
-    Exit,
-    IntLit,
-    Semi,
-    Invalid,
-    LeftParen,
-    RightParen,
-    Identifier,
-    Assign,
-    IsEqual,
-    NotEqual,
-    True,
-    False,
-    Subtract,
-    Add,
-    Divide,
-    Multiply,
-    Greater,
-    Less,
-}
-
-#[derive(Debug, Clone)]
 struct Token {
-    token_type: TokenType,
-    value: Option<Value>,
+    _type: Type,
     lexeme: String,
     line_number: usize,
     line_index: usize,
 }
 
 #[derive(Debug, Clone)]
-enum Value {
-    Bool(bool),
-    Int(i32),
+enum Type {
+    Int,
+    Bool,
+    None,
 }
 
 fn lexer(mut src: String) -> VecDeque<Token> {
-    let single_char_keys = HashMap::from([
-        (';', TokenType::Semi),
-        ('(', TokenType::LeftParen),
-        (')', TokenType::RightParen),
-        ('-', TokenType::Subtract),
-        ('/', TokenType::Divide),
-        ('*', TokenType::Multiply),
-        ('+', TokenType::Add),
-        ('>', TokenType::Greater),
-        ('<', TokenType::Less),
-    ]);
     let mut tokens = VecDeque::<Token>::new();
     // src_index keeps the total position in the src
     let mut src_index = 0;
@@ -110,47 +77,43 @@ fn lexer(mut src: String) -> VecDeque<Token> {
         // On complex (multi-char) match:
         //      Look ahead and consume all chars, produce a token and the no.
         //      of chars consumed
-        match single_char_keys.get(&first_char) {
-            Some(token_type) => {
+        match first_char {
+            ';' | '(' | ')' | '/' | '*' | '-' | '+' | '<' | '>' => {
                 tokens.push_back(consume_token(
                     &mut src,
                     1,
-                    token_type.clone(),
-                    None,
+                    Type::None,
                     line_number,
                     line_index,
                 ));
                 src_index += 1;
                 line_index += 1
             }
-            // If the first char isn't an single char lexeme
-            None => match first_char {
-                ' ' => {
-                    src.drain(..1);
-                    src_index += 1;
-                    line_index += 1;
-                }
-                '\n' => {
-                    src.drain(..1);
-                    src_index += 1;
-                    line_index = 1;
-                    line_number += 1;
-                }
-                '=' => {
-                    let (token, index) =
-                        check_multi_char_operator(&mut src, line_number, line_index, '=');
-                    tokens.push_back(token);
-                    src_index += index;
-                    line_index += index;
-                }
-                _ => {
-                    let (token, index) =
-                        check_literal_identifier_or_keyword(&mut src, line_number, line_index);
-                    tokens.push_back(token);
-                    src_index += index;
-                    line_index += index;
-                }
-            },
+            ' ' => {
+                src.drain(..1);
+                src_index += 1;
+                line_index += 1;
+            }
+            '\n' => {
+                src.drain(..1);
+                src_index += 1;
+                line_index = 1;
+                line_number += 1;
+            }
+            '=' => {
+                let (token, index) =
+                    check_multi_char_operator(&mut src, line_number, line_index, '=');
+                tokens.push_back(token);
+                src_index += index;
+                line_index += index;
+            }
+            _ => {
+                let (token, index) =
+                    check_literal_identifier_or_keyword(&mut src, line_number, line_index);
+                tokens.push_back(token);
+                src_index += index;
+                line_index += index;
+            }
         }
     }
     tokens
@@ -159,8 +122,7 @@ fn lexer(mut src: String) -> VecDeque<Token> {
 fn consume_token(
     src: &mut String,
     chars_to_consume: usize,
-    token_type: TokenType,
-    value: Option<Value>,
+    _type: Type,
     line_number: usize,
     line_index: usize,
 ) -> Token {
@@ -169,8 +131,7 @@ fn consume_token(
     println!("lexeme is {}", &lexeme.as_str());
     // Return the token created
     Token {
-        token_type: token_type.clone(),
-        value,
+        _type,
         lexeme: lexeme.as_str().to_string(),
         line_number,
         line_index,
@@ -183,7 +144,7 @@ fn check_literal_identifier_or_keyword(
     line_index: usize,
 ) -> (Token, usize) {
     // Could find a better way to store this Hashmap but w/e
-    let lexume_keys: HashMap<&str, TokenType> = HashMap::from([("exit", TokenType::Exit)]);
+    //let lexume_keys: HashMap<&str, TokenType> = HashMap::from([("exit", TokenType::Exit)]);
     // let literal_keys: HashMap<&str, TokenType> = HashMap::from([
     //     ("true", TokenType::True),
     //     ("false", TokenType::False),
@@ -211,66 +172,27 @@ fn check_literal_identifier_or_keyword(
     {
         c if c.is_ascii_digit() => {
             return (
-                consume_token(
-                    src,
-                    lexume_index,
-                    TokenType::IntLit,
-                    Some(Value::Int(lexeme.to_string().parse::<i32>().expect(
-                        "Should always be able to parse a number literal to a number",
-                    ))),
-                    line_number,
-                    line_index,
-                ),
+                consume_token(src, lexume_index, Type::Int, line_number, line_index),
                 lexume_index,
             );
         }
         _ => match lexeme {
             "true" => (
-                consume_token(
-                    src,
-                    lexume_index,
-                    TokenType::True,
-                    Some(Value::Bool(true)),
-                    line_number,
-                    line_index,
-                ),
+                consume_token(src, lexume_index, Type::Bool, line_number, line_index),
                 lexume_index,
             ),
             "false" => (
-                consume_token(
-                    src,
-                    lexume_index,
-                    TokenType::False,
-                    Some(Value::Bool(false)),
-                    line_number,
-                    line_index,
-                ),
+                consume_token(src, lexume_index, Type::Bool, line_number, line_index),
                 lexume_index,
             ),
-            _ => match lexume_keys.get(lexeme) {
-                Some(token_type) => (
-                    consume_token(
-                        src,
-                        lexume_index,
-                        token_type.clone(),
-                        None,
-                        line_number,
-                        line_index,
-                    ),
-                    lexume_index,
-                ),
-                None => (
-                    consume_token(
-                        src,
-                        lexume_index,
-                        TokenType::Identifier,
-                        None,
-                        line_number,
-                        line_index,
-                    ),
-                    lexume_index,
-                ),
-            },
+            "exit" | "let" | "int" => (
+                consume_token(src, lexume_index, Type::None, line_number, line_index),
+                lexume_index,
+            ),
+            _ => (
+                consume_token(src, lexume_index, Type::None, line_number, line_index),
+                lexume_index,
+            ),
         },
     }
 }
@@ -289,38 +211,27 @@ fn check_multi_char_operator(
     line_index: usize,
     to_match: char,
 ) -> (Token, usize) {
-    let two_char_ops = HashMap::from([("==", TokenType::IsEqual), ("!=", TokenType::NotEqual)]);
-    let one_char_ops = HashMap::from([('=', TokenType::Assign)]);
+    // let two_char_ops = HashMap::from([("==", TokenType::IsEqual), ("!=", TokenType::NotEqual)]);
+    // let one_char_ops = HashMap::from([('=', TokenType::Assign)]);
     // Match the next char in src
     match look_ahead(src, to_match) {
         // lookup the two char op table to get TokenType
-        true => match two_char_ops.get(&src[..2]) {
-            Some(token_type) => (
-                consume_token(src, 2, token_type.clone(), None, line_number, line_index),
+        true => match &src[..2] {
+            "==" | "!=" => (
+                consume_token(src, 2, Type::None, line_number, line_index),
                 2,
             ),
             // If none, add invalid (for now)
-            None => (
-                consume_token(src, 2, TokenType::Invalid, None, line_number, line_index),
-                2,
-            ),
+            _ => panic!("Unrecognised 2 char op at {}, {}", line_number, line_index),
         },
-        // The next char didn't match OR there was no next char in src
-        // Lookup in the one char ops table to get TokenType
-        false => match one_char_ops.get(
-            &src.chars()
-                .nth(0)
-                .expect("Should always be at least 1 char in src"),
-        ) {
-            Some(token_type) => (
-                consume_token(src, 1, token_type.clone(), None, line_number, line_index),
+
+        false => match &src[..1] {
+            "=" => (
+                consume_token(src, 1, Type::None, line_number, line_index),
                 1,
             ),
             // If none, add invalid (for now)
-            None => (
-                consume_token(src, 1, TokenType::Invalid, None, line_number, line_index),
-                1,
-            ),
+            _ => panic!("Invalid char at {} {}", line_number, line_index),
         },
     }
 }
@@ -341,16 +252,35 @@ fn look_ahead(src: &str, to_match: char) -> bool {
     }
 }
 
-fn parse_tokens(tokens: &mut VecDeque<Token>) -> VecDeque<Expression> {
-    let mut expression_list = VecDeque::<Expression>::new();
+fn parse_tokens(tokens: &mut VecDeque<Token>) -> VecDeque<Statement> {
+    let mut statement_list = VecDeque::<Statement>::new();
 
-    while tokens.len() != 0 {
-        expression_list.push_back(parse_expression(tokens))
-    }
+    // while tokens.len() != 0 {
+    //     statement_list.push_back(parse_statement(tokens))
+    // }
 
-    println!("{:#?}", expression_list);
-    expression_list
+    ast_pretty_printer(&parse_expression(tokens));
+
+    statement_list
 }
+
+// fn parse_statement(tokens: &mut VecDeque<Token>) -> Statement {
+//     if let Some(token) = tokens.pop_front() {
+//         match token.lexeme.as_str() {
+//             "let" => {
+//                 match tokens.pop_front().expect("Should always be another token here") {
+//                     TokenType::KeyWord => {
+
+//                     }
+//                     _ =>
+//                 }
+//             }
+//             _ => panic!("This would be an error because we only have LET now"),
+//         }
+//     } else {
+//         panic!("How is there a statement with no token??")
+//     }
+// }
 
 fn parse_expression(tokens: &mut VecDeque<Token>) -> Expression {
     parse_equality(tokens)
@@ -359,8 +289,8 @@ fn parse_expression(tokens: &mut VecDeque<Token>) -> Expression {
 fn parse_equality(tokens: &mut VecDeque<Token>) -> Expression {
     let mut expr = parse_comparision(tokens);
     while let Some(token) = tokens.pop_front() {
-        match token.token_type {
-            TokenType::IsEqual | TokenType::NotEqual => {
+        match token.lexeme.as_str() {
+            "==" | "!=" => {
                 expr =
                     Expression::Binary(Box::new(expr), token, Box::new(parse_comparision(tokens)));
             }
@@ -377,8 +307,8 @@ fn parse_equality(tokens: &mut VecDeque<Token>) -> Expression {
 fn parse_comparision(tokens: &mut VecDeque<Token>) -> Expression {
     let mut expr = parse_term(tokens);
     while let Some(token) = tokens.pop_front() {
-        match token.token_type {
-            TokenType::Greater | TokenType::Less => {
+        match token.lexeme.as_str() {
+            "<" | ">" => {
                 expr = Expression::Binary(Box::new(expr), token, Box::new(parse_term(tokens)));
             }
             _ => {
@@ -394,8 +324,8 @@ fn parse_comparision(tokens: &mut VecDeque<Token>) -> Expression {
 fn parse_term(tokens: &mut VecDeque<Token>) -> Expression {
     let mut expr = parse_factor(tokens);
     while let Some(token) = tokens.pop_front() {
-        match token.token_type {
-            TokenType::Add | TokenType::Subtract => {
+        match token.lexeme.as_str() {
+            "+" | "-" => {
                 expr = Expression::Binary(Box::new(expr), token, Box::new(parse_factor(tokens)));
             }
             _ => {
@@ -411,8 +341,8 @@ fn parse_term(tokens: &mut VecDeque<Token>) -> Expression {
 fn parse_factor(tokens: &mut VecDeque<Token>) -> Expression {
     let mut expr = parse_unary(tokens);
     while let Some(token) = tokens.pop_front() {
-        match token.token_type {
-            TokenType::Divide | TokenType::Multiply => {
+        match token.lexeme.as_str() {
+            "/" | "*" => {
                 expr = Expression::Binary(Box::new(expr), token, Box::new(parse_unary(tokens)));
             }
             _ => {
@@ -427,8 +357,8 @@ fn parse_factor(tokens: &mut VecDeque<Token>) -> Expression {
 
 fn parse_unary(tokens: &mut VecDeque<Token>) -> Expression {
     let first_token = &tokens[0];
-    match first_token.token_type {
-        TokenType::Subtract => Expression::Unary(
+    match first_token.lexeme.as_str() {
+        "-" => Expression::Unary(
             tokens
                 .pop_front()
                 .expect("Should always be at least 1 element in tokens"),
@@ -440,41 +370,26 @@ fn parse_unary(tokens: &mut VecDeque<Token>) -> Expression {
 
 fn parse_primary(tokens: &mut VecDeque<Token>) -> Expression {
     if let Some(token) = tokens.pop_front() {
-        match token.token_type {
-            TokenType::True | TokenType::False => {
-                let literal_value: bool;
-                if let Some(Value::Bool(lv)) = token.value {
-                    Expression::Primary(Primary::Bool(lv))
-                } else {
-                    panic!("Whoops, either no value or not a bool")
-                }
-            }
-            TokenType::IntLit => {
-                let literal_value: i32;
-                if let Some(Value::Int(lv)) = token.value {
-                    Expression::Primary(Primary::Int(lv))
-                } else {
-                    panic!("Found bool in int token")
-                }
-            }
-            TokenType::LeftParen => {
-                let left = token;
-                let expr = parse_expression(tokens);
-                if let Some(next_token) = tokens.pop_front() {
-                    match next_token.token_type {
-                        TokenType::RightParen => {
-                            Expression::Primary(Primary::Group(left, Box::new(expr), next_token))
+        match token._type {
+            Type::Bool | Type::Int => Expression::Literal(token),
+            _ => match token.lexeme.as_str() {
+                "(" => {
+                    let left = token;
+                    let expr = parse_expression(tokens);
+                    if let Some(next_token) = tokens.pop_front() {
+                        match next_token.lexeme.as_str() {
+                            ")" => Expression::Group(left, Box::new(expr), next_token),
+                            _ => panic!("Didn't match group"),
                         }
-                        _ => panic!("Didn't match group"),
+                    } else {
+                        panic!("ran out of tokens before group finished")
                     }
-                } else {
-                    panic!("ran out of tokens before group finished")
                 }
-            }
-            _ => panic!("Whoops! can't deal with this yet"),
+                _ => panic!("unrecognised primary token!"),
+            },
         }
     } else {
-        panic!("no error handling yet");
+        panic!("No primary tokens!")
     }
 }
 
@@ -492,33 +407,27 @@ fn ast_pretty_printer(expr: &Expression) {
             print!("{}", op.lexeme);
             ast_pretty_printer(right);
         }
-        Expression::Primary(primary) => match primary {
-            Primary::Bool(lit) => {
-                print!("{}", lit);
-            }
-            Primary::Int(lit) => {
-                print!("{}", lit);
-            }
-            Primary::Group(_, inner_expr, _) => {
-                print!("[ group ");
-                ast_pretty_printer(inner_expr);
-                print!(" ]");
-            }
-        },
+        Expression::Literal(token) => {
+            print!("{}", &token.lexeme);
+        }
+        Expression::Group(_, inner_expr, _) => {
+            print!("[ group ");
+            ast_pretty_printer(inner_expr);
+            print!(" ]");
+        }
     }
+}
+
+#[derive(Debug, Clone)]
+enum Statement {
+    Assignment(Type, Token, Expression),
 }
 
 #[derive(Debug, Clone)]
 enum Expression {
     Binary(Box<Expression>, Token, Box<Expression>),
     Unary(Token, Box<Expression>),
-    Primary(Primary),
-}
-
-#[derive(Debug, Clone)]
-enum Primary {
-    Int(i32),
-    Bool(bool),
+    Literal(Token),
     Group(Token, Box<Expression>, Token),
 }
 
