@@ -1,5 +1,6 @@
-maybe: generic functions that parse expressions?
 
 maybe shift literal parsing to parse step rather than lexer
 
-for AST print: match on literal, if yes print bracket, if not recurse function
+error: separate error types for synatx, type, expression etc
+
+for parser: don't store bracket tokens for groups
