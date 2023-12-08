@@ -1,80 +1,119 @@
+use core::panic;
 use std::collections::{HashMap, VecDeque};
 
+use crate::ast_printer::ast_pretty_printer;
 use crate::representations::{Expression, Statement};
 
 pub fn build(statements: &VecDeque<Statement>) -> Vec<String> {
     let mut symbol_register_hash = HashMap::<String, String>::new();
-    let mut register_queue: VecDeque<&str> = VecDeque::from(["r8", "r9", "r10", "r11"]);
-    let asm_lines = build_statement(&statements[0], &mut register_queue, &mut symbol_register_hash);
+    let mut register_queue: VecDeque<String> =
+        VecDeque::from(["r8", "r9", "r10", "r11"].map(String::from));
+    let mut used_registers: VecDeque<String> = VecDeque::new();
+    let asm_lines = build_statement(
+        &statements[0],
+        &mut register_queue,
+        &mut used_registers,
+        &mut symbol_register_hash,
+    );
     asm_lines
 }
 
 fn build_statement(
     statement: &Statement,
-    reg_queue: &mut VecDeque<&str>,
+    reg_queue: &mut VecDeque<String>,
+    used_registers: &mut VecDeque<String>,
     symbol_hash: &mut HashMap<String, String>,
-) -> Vec<String>{
+) -> Vec<String> {
+    let mut instruction_list = Vec::<String>::new();
     match statement {
         Statement::Assignment(_token, _id, expr) => {
-            let (_, asm_lines) = build_expr(&expr, reg_queue, symbol_hash);
-            for line in &asm_lines {
-                println!("{}", line);
-            }
-            asm_lines
+            let _ = build_expr(
+                &expr,
+                &mut instruction_list,
+                reg_queue,
+                used_registers,
+                symbol_hash,
+            );
+            instruction_list
         }
     }
 }
 
 pub fn build_expr(
     expr: &Expression,
-    reg_queue: &mut VecDeque<&str>,
+    instruction_list: &mut Vec<String>,
+    reg_queue: &mut VecDeque<String>,
+    used_registers: &mut VecDeque<String>,
     symbol_hash: &mut HashMap<String, String>,
-) -> (String, Vec<String>) {
-    let mut instruction_list: Vec<String> = Vec::new();
+) -> String {
     match expr {
-        Expression::Binary(left, op, right) => match left.as_ref() {
-            Expression::Literal(left_token) => match right.as_ref() {
-                Expression::Literal(right_token) => {
-                    let reg = reg_queue.pop_front().expect("Should be a register here");
-                    let instruction = format!(
-                        "lea {}, [{} {} {}]",
-                        reg,
-                        left_token.lexeme(),
-                        op.lexeme(),
-                        right_token.lexeme()
-                    );
-                    instruction_list.push(instruction);
-                    return (reg.to_string(), instruction_list);
+        Expression::Binary(left, op, right) => {
+            ast_pretty_printer(&expr);
+            println!("\n");
+            // if reg_queue.len() <= 1 {
+            //     let reg1 = used_registers.pop_front().expect("If the regs have been used they should be in here");
+            //     instruction_list.push(format!("push {}", &reg1));
+            //     reg_queue.push_back(reg1);
+            //     let reg2 = used_registers.pop_front().expect("Should be another reg here as well!");
+            //     instruction_list.push(format!("push {}", &reg2));
+            //     reg_queue.push_back(reg2);
+            // }
+            let right_reg = build_expr(
+                right,
+                instruction_list,
+                reg_queue,
+                used_registers,
+                symbol_hash,
+            );
+
+            let left_reg = build_expr(
+                left,
+                instruction_list,
+                reg_queue,
+                used_registers,
+                symbol_hash,
+            );
+            // if reg_queue.len() == 0 {
+            //      let reg1 = used_registers.pop_front().expect("If the regs have been used they should be in here");
+            //     instruction_list.push(format!("push {}", &reg1));
+            //     reg_queue.push_back(reg1);
+            // }
+            match op.lexeme() {
+                "+" => {
+                    instruction_list.push(format!("add {}, {}", left_reg, right_reg));
+                    println!("freed {}", &right_reg);
+                    reg_queue.push_front(right_reg);
                 }
-                Expression::Binary(_, _, _) => {
-                    let (inner_reg, mut instructions) = build_expr(&right, reg_queue, symbol_hash);
-                    instruction_list.append(&mut instructions);
-                    instruction_list.push(format!(
-                        "lea {}, [{} {} {}]",
-                        inner_reg,
-                        left_token.lexeme(),
-                        op.lexeme(),
-                        inner_reg
-                    ));
-                    return (inner_reg, instruction_list);
-                },
-                Expression::Group(_, inner_expr, _) => {
-                    let (inner_reg, mut instructions) = build_expr(&inner_expr, reg_queue, symbol_hash);
-                    instruction_list.append(&mut instructions);
-                    instruction_list.push(format!(
-                        "lea {}, [{} {} {}]",
-                        inner_reg,
-                        left_token.lexeme(),
-                        op.lexeme(),
-                        inner_reg
-                    ));
-                    return (inner_reg, instruction_list);
-                },
- 
-                _ => panic!("Can't do this yet"),
-            },
-            _ => panic!("Can't do this yet"),
-        },
-        _ => panic!("Can't do this yet"),
+                "*" => {
+                    instruction_list.push(format!("mov rax, {}", left_reg));
+                    instruction_list.push(format!("mul {}", right_reg));
+                    instruction_list.push(format!("mov {}, rax", left_reg));
+                    println!("freed {}", &right_reg);
+                    reg_queue.push_front(right_reg);
+                }
+                _ => panic!("Can't handle {} yet", op.lexeme()),
+            };
+            left_reg
+        }
+        Expression::Literal(token) => {
+            let reg = reg_queue
+                .pop_front()
+                .expect("Should be a register to put the literal into!");
+            used_registers.push_back(reg.clone());
+            println!("{}, {}", &reg, &token.lexeme());
+            instruction_list.push(format!("mov {}, {}", reg, token.lexeme()));
+            reg
+        }
+        Expression::Group(_, expr, _) => {
+            let inner_reg = build_expr(
+                expr,
+                instruction_list,
+                reg_queue,
+                used_registers,
+                symbol_hash,
+            );
+            inner_reg
+        }
+        _ => panic!("Expression must be a binary expression"),
     }
 }

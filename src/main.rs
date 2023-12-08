@@ -17,6 +17,7 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::Command;
 
 // #[derive(Parser, Debug)]
 // struct Args {
@@ -69,4 +70,10 @@ _start:
     output_file
         .write(output_string.as_bytes())
         .expect("shopulfd work");
+
+    let _ = Command::new("make").status().unwrap();
+
+    let compiled_status = Command::new("./test").status().unwrap();
+
+    println!("\n\n{}\n", compiled_status);
 }

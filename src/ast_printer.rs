@@ -9,7 +9,7 @@ pub fn statement_pretty_printer(stmt: &Statement) {
     }
 }
 
-fn ast_pretty_printer(expr: &Expression) {
+pub fn ast_pretty_printer(expr: &Expression) {
     match expr {
         Expression::Binary(left, op, right) => {
             print!("(");
