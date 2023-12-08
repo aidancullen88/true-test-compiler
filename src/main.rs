@@ -42,7 +42,7 @@ fn main() {
 
     println!("\n\n");
 
-    let (asm_lines, result_reg) = build(&statements);
+    let asm_lines = build(&statements);
 
     let output_file_path = PathBuf::from("test.asm");
 
@@ -60,11 +60,13 @@ _start:
         output_string.push_str("\n");
     }
 
-    output_string.push_str(format!(
-        r#"    mov rax, 60
-    mov rdi, {}
-    syscall"#,
-    result_reg).as_str());
+    output_string.push_str(
+        format!(
+            r#"    mov rax, 60
+    pop rdi
+    syscall"#)
+        .as_str(),
+    );
 
     let mut output_file = File::create(output_file_path).expect("should work");
     output_file
@@ -75,5 +77,5 @@ _start:
 
     let compiled_status = Command::new("./test").status().unwrap();
 
-    println!("\n\n{}\n", compiled_status);
+    println!("{}\n", compiled_status);
 }
