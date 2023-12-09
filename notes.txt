@@ -4,3 +4,5 @@ maybe shift literal parsing to parse step rather than lexer
 error: separate error types for synatx, type, expression etc
 
 for parser: don't store bracket tokens for groups
+
+optimised: 25 lines, no stack useage
