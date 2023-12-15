@@ -5,4 +5,4 @@ error: separate error types for synatx, type, expression etc
 
 for parser: don't store bracket tokens for groups
 
-optimised: 25 lines, no stack useage
+for stack: grows 8 bytes downwards for each 64 bit integer

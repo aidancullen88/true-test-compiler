@@ -1,13 +1,13 @@
 use std::collections::VecDeque;
 
-use crate::representations::{Token, Type};
+use crate::representations::{Token, TokenType, Type};
 
 pub fn lexer(mut src: String) -> VecDeque<Token> {
     let mut tokens = VecDeque::<Token>::new();
     // src_index keeps the total position in the src
     let mut src_index = 0;
     let src_length = src.len();
-    let mut line_number = 0;
+    let mut line_number = 1;
     let mut line_index = 1;
 
     // as we consume the src, src_index approachs the original src_length!
@@ -29,16 +29,29 @@ pub fn lexer(mut src: String) -> VecDeque<Token> {
         //      Look ahead and consume all chars, produce a token and the no.
         //      of chars consumed
         match first_char {
-            ';' | '(' | ')' | '/' | '*' | '-' | '+' | '<' | '>' => {
+            ';' | '(' | ')' => {
                 tokens.push_back(consume_token(
                     &mut src,
                     1,
                     Type::None,
+                    TokenType::Symbol,
                     line_number,
                     line_index,
                 ));
                 src_index += 1;
-                line_index += 1
+                line_index += 1;
+            }
+            '+' | '-' | '/' | '*' | '<' | '>' => {
+                tokens.push_back(consume_token(
+                    &mut src,
+                    1,
+                    Type::None,
+                    TokenType::Operator,
+                    line_number,
+                    line_index,
+                ));
+                src_index += 1;
+                line_index += 1;
             }
             ' ' => {
                 src.drain(..1);
@@ -74,6 +87,7 @@ fn consume_token(
     src: &mut String,
     chars_to_consume: usize,
     _type: Type,
+    token_type: TokenType,
     line_number: usize,
     line_index: usize,
 ) -> Token {
@@ -81,7 +95,13 @@ fn consume_token(
     let lexeme = src.drain(..chars_to_consume);
     /* println!("lexeme is {}", &lexeme.as_str()); */
     // Return the token created
-    Token::new(_type, lexeme.as_str().to_string(), line_number, line_index)
+    Token::new(
+        _type,
+        token_type,
+        lexeme.as_str().to_string(),
+        line_number,
+        line_index,
+    )
 }
 
 fn check_literal_identifier_or_keyword(
@@ -118,25 +138,60 @@ fn check_literal_identifier_or_keyword(
     {
         c if c.is_ascii_digit() => {
             return (
-                consume_token(src, lexume_index, Type::Int, line_number, line_index),
+                consume_token(
+                    src,
+                    lexume_index,
+                    Type::Int,
+                    TokenType::Literal,
+                    line_number,
+                    line_index,
+                ),
                 lexume_index,
             );
         }
         _ => match lexeme {
             "true" => (
-                consume_token(src, lexume_index, Type::Bool, line_number, line_index),
+                consume_token(
+                    src,
+                    lexume_index,
+                    Type::Bool,
+                    TokenType::Literal,
+                    line_number,
+                    line_index,
+                ),
                 lexume_index,
             ),
             "false" => (
-                consume_token(src, lexume_index, Type::Bool, line_number, line_index),
+                consume_token(
+                    src,
+                    lexume_index,
+                    Type::Bool,
+                    TokenType::Literal,
+                    line_number,
+                    line_index,
+                ),
                 lexume_index,
             ),
-            "exit" | "let" | "int" => (
-                consume_token(src, lexume_index, Type::None, line_number, line_index),
+            "let" | "int" | "bool" => (
+                consume_token(
+                    src,
+                    lexume_index,
+                    Type::None,
+                    TokenType::Keyword,
+                    line_number,
+                    line_index,
+                ),
                 lexume_index,
             ),
             _ => (
-                consume_token(src, lexume_index, Type::None, line_number, line_index),
+                consume_token(
+                    src,
+                    lexume_index,
+                    Type::None,
+                    TokenType::Identifier,
+                    line_number,
+                    line_index,
+                ),
                 lexume_index,
             ),
         },
@@ -164,7 +219,14 @@ fn check_multi_char_operator(
         // lookup the two char op table to get TokenType
         true => match &src[..2] {
             "==" | "!=" => (
-                consume_token(src, 2, Type::None, line_number, line_index),
+                consume_token(
+                    src,
+                    2,
+                    Type::None,
+                    TokenType::Operator,
+                    line_number,
+                    line_index,
+                ),
                 2,
             ),
             // If none, add invalid (for now)
@@ -173,7 +235,14 @@ fn check_multi_char_operator(
 
         false => match &src[..1] {
             "=" => (
-                consume_token(src, 1, Type::None, line_number, line_index),
+                consume_token(
+                    src,
+                    1,
+                    Type::None,
+                    TokenType::Assignment,
+                    line_number,
+                    line_index,
+                ),
                 1,
             ),
             // If none, add invalid (for now)

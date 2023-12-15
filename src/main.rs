@@ -8,6 +8,7 @@ use crate::ast_printer::statement_pretty_printer;
 use crate::backend::build;
 use crate::lexer::lexer;
 use crate::parser::parse_tokens;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -24,20 +25,21 @@ fn main() {
 
     let mut lexed_line: std::collections::VecDeque<representations::Token> = lexer(raw_code);
 
-    let statements = parse_tokens(&mut lexed_line);
+    let mut symbol_table = HashMap::<String, representations::Symbol>::new();
+    let mut statements = parse_tokens(&mut lexed_line, &mut symbol_table);
 
     println!("\n\n");
+    for s in &statements {
+        statement_pretty_printer(s);
+        println!("\n")
+    }
 
-    statement_pretty_printer(&statements[0]);
+    let asm_lines = build(&mut statements, &mut symbol_table);
 
-    println!("\n\n");
-
-    let asm_lines = build(&statements);
-
+    println!("\n{:#?}\n", symbol_table);
     let comp_time = compiler_time.elapsed();
 
     let output_file_path = PathBuf::from("test.asm");
-
     let mut output_string: String = r#"global _start
 
 section .text
@@ -66,7 +68,6 @@ _start:
         .expect("shopulfd work");
 
     let _ = Command::new("make").status().unwrap();
-
     let compiled_status = Command::new("./test").status().unwrap();
 
     println!("{}\n", compiled_status);

@@ -1,41 +1,86 @@
 use core::panic;
 use std::collections::{HashMap, VecDeque};
 
-use crate::representations::{Expression, Statement};
+use crate::representations::{Expression, InnerAddrType, Statement, Symbol, TokenType};
 
 // Build a list of statements into their instructions: module entry point
-pub fn build(statements: &VecDeque<Statement>) -> Vec<String> {
-    // Not currently used, needed for indentifier addresses later
-    let mut symbol_register_hash = HashMap::<String, String>::new();
-    let asm_lines = build_statement(&statements[0], &mut symbol_register_hash);
-    asm_lines
+pub fn build(
+    statements: &mut VecDeque<Statement>,
+    symbol_table: &mut HashMap<String, Symbol>,
+) -> Vec<String> {
+    let mut reg_list = VecDeque::<String>::from(["r8", "r9", "r10", "r11"].map(String::from));
+    let mut program_instruction_list = Vec::<String>::new();
+    program_instruction_list.push(format!("mov rbp, rsp"));
+    let mut stack_offset_counter = 8;
+    while statements.len() != 0 {
+        let stmt_to_build = statements
+            .pop_front()
+            .expect("We check for an element in the while loop");
+        let mut instruction_list = build_statement(
+            &stmt_to_build,
+            &mut reg_list,
+            symbol_table,
+            &mut stack_offset_counter,
+        );
+        program_instruction_list.append(&mut instruction_list);
+    }
+    program_instruction_list.push(format!("pop rdi"));
+    program_instruction_list
 }
 
 // Build one statement into asm instructions
 fn build_statement(
     statement: &Statement,
-    symbol_hash: &mut HashMap<String, String>,
+    reg_list: &mut VecDeque<String>,
+    symbol_table: &mut HashMap<String, Symbol>,
+    stack_offset_counter: &mut u32,
 ) -> Vec<String> {
     // The registers free to do computations. Could add more
-    let mut reg_list = VecDeque::<String>::from(["r8", "r9", "r10", "r11"].map(String::from));
     let mut instruction_list = Vec::<String>::new();
     match statement {
-        Statement::Assignment(_token, _id, expr) => {
-            let final_reg = build_expr(&expr, &mut reg_list, &mut instruction_list, symbol_hash);
+        Statement::Assignment(s_type, id, expr) => {
+            let final_loc = build_expr(&expr, reg_list, &mut instruction_list, symbol_table);
             // Temporary check to make sure the rdi register is set to the computed value for exit
-            match final_reg {
-                InnerAddrType::Stack => instruction_list.push(format!("pop rdi")),
-                InnerAddrType::Reg(reg) => instruction_list.push(format!("mov rdi, {}", reg)),
+            match final_loc {
+                InnerAddrType::Stack => {
+                    symbol_table.insert(
+                        id.to_string(),
+                        Symbol {
+                            stack_offset: Some(*stack_offset_counter),
+                            _type: s_type.clone(),
+                        },
+                    );
+                    *stack_offset_counter += 8;
+                    instruction_list
+                }
+                InnerAddrType::Reg(reg) => {
+                    symbol_table.insert(
+                        id.to_string(),
+                        Symbol {
+                            stack_offset: Some(*stack_offset_counter),
+                            _type: s_type.clone(),
+                        },
+                    );
+                    *stack_offset_counter += 8;
+                    instruction_list.push(format!("push {}", reg));
+                    instruction_list
+                }
+                InnerAddrType::StackOffset(offset) => {
+                    symbol_table.insert(
+                        id.to_string(),
+                        Symbol {
+                            stack_offset: Some(*stack_offset_counter),
+                            _type: s_type.clone(),
+                        },
+                    );
+                    *stack_offset_counter += 8;
+                    instruction_list.push(format!("mov rax, qword [rbp - {}]", offset));
+                    instruction_list.push(format!("push rax"));
+                    instruction_list
+                }
             }
-            instruction_list
         }
     }
-}
-
-// Represent the possible places the return of a binary expr can be
-enum InnerAddrType {
-    Stack,
-    Reg(String),
 }
 
 // Builds an expression into asm instructions
@@ -43,14 +88,14 @@ fn build_expr(
     expr: &Expression,
     reg_list: &mut VecDeque<String>,
     instruction_list: &mut Vec<String>,
-    symbol_hash: &mut HashMap<String, String>,
+    symbol_table: &mut HashMap<String, Symbol>,
 ) -> InnerAddrType {
     // Recursive match on the expression AST
     match expr {
         Expression::Binary(left, op, right) => {
             // Recurse into the tree
-            let left_addr = build_expr(left, reg_list, instruction_list, symbol_hash);
-            let right_addr = build_expr(right, reg_list, instruction_list, symbol_hash);
+            let left_addr = build_expr(left, reg_list, instruction_list, symbol_table);
+            let right_addr = build_expr(right, reg_list, instruction_list, symbol_table);
 
             // Init left and right reg to be assigned in the match
             let left_reg: &str;
@@ -68,6 +113,10 @@ fn build_expr(
                 InnerAddrType::Reg(ref reg) => {
                     right_reg = reg;
                 }
+                InnerAddrType::StackOffset(offset) => {
+                    instruction_list.push(format!("mov rcx, qword [rbp - {}]", offset));
+                    right_reg = "rcx";
+                }
             }
 
             match left_addr {
@@ -77,6 +126,10 @@ fn build_expr(
                 }
                 InnerAddrType::Reg(ref reg) => {
                     left_reg = &reg;
+                }
+                InnerAddrType::StackOffset(offset) => {
+                    instruction_list.push(format!("mov rax, qword [rbp - {}]", offset));
+                    left_reg = "rax";
                 }
             }
 
@@ -128,33 +181,47 @@ fn build_expr(
                 InnerAddrType::Reg(_) => {
                     return InnerAddrType::Reg(left_reg.to_string());
                 }
-                InnerAddrType::Stack => match reg_list.pop_front() {
-                    Some(reg) => {
-                        instruction_list.push(format!("mov {}, rax", reg));
-                        return InnerAddrType::Reg(reg);
+                InnerAddrType::Stack | InnerAddrType::StackOffset(_) => {
+                    match reg_list.pop_front() {
+                        Some(reg) => {
+                            instruction_list.push(format!("mov {}, rax", reg));
+                            return InnerAddrType::Reg(reg);
+                        }
+                        None => {
+                            instruction_list.push(format!("push rax"));
+                            return InnerAddrType::Stack;
+                        }
                     }
-                    None => {
-                        instruction_list.push(format!("push rax"));
-                        return InnerAddrType::Stack;
-                    }
-                },
+                }
             }
         }
         // When we get to a literal, the value is just pushed into a
         // reg or onto the stack
-        Expression::Literal(token) => match reg_list.pop_front() {
-            Some(reg) => {
-                instruction_list.push(format!("mov {}, {}", reg, token.lexeme()));
-                return InnerAddrType::Reg(reg);
-            }
-            None => {
-                instruction_list.push(format!("mov rax, {}", token.lexeme()));
-                instruction_list.push(format!("push rax"));
-                return InnerAddrType::Stack;
-            }
+        Expression::Literal(token) => match token.token_type() {
+            TokenType::Identifier => match symbol_table.get(token.lexeme()) {
+                Some(symbol_info) => match symbol_info.stack_offset {
+                    Some(offset) => {
+                        return InnerAddrType::StackOffset(offset);
+                    }
+                    None => panic!("{} is referenced before initialisation", token.lexeme()),
+                },
+                None => panic!("{} is referenced before declaration", token.lexeme()),
+            },
+            TokenType::Literal => match reg_list.pop_front() {
+                Some(reg) => {
+                    instruction_list.push(format!("mov {}, {}", reg, token.lexeme()));
+                    return InnerAddrType::Reg(reg);
+                }
+                None => {
+                    instruction_list.push(format!("mov rax, {}", token.lexeme()));
+                    instruction_list.push(format!("push rax"));
+                    return InnerAddrType::Stack;
+                }
+            },
+            _ => panic!("token is not a literal or id {}", token.lexeme()),
         },
         // A group just recurses straight away
-        Expression::Group(_, expr, _) => build_expr(expr, reg_list, instruction_list, symbol_hash),
+        Expression::Group(_, expr, _) => build_expr(expr, reg_list, instruction_list, symbol_table),
         _ => panic!("Expression must be a binary expression"),
     }
 }
