@@ -61,8 +61,8 @@ fn build_statement(
                             _type: s_type.clone(),
                         },
                     );
+                    instruction_list.push(format!("push {}   ; save {} to [rbp - {}]", reg, id, stack_offset_counter));
                     *stack_offset_counter += 8;
-                    instruction_list.push(format!("push {}", reg));
                     instruction_list
                 }
                 InnerAddrType::StackOffset(offset) => {
@@ -73,9 +73,9 @@ fn build_statement(
                             _type: s_type.clone(),
                         },
                     );
-                    *stack_offset_counter += 8;
                     instruction_list.push(format!("mov rax, qword [rbp - {}]", offset));
-                    instruction_list.push(format!("push rax"));
+                    instruction_list.push(format!("push rax   ; save {} to [rbp - {}]", id, stack_offset_counter));
+                    *stack_offset_counter += 8;
                     instruction_list
                 }
             }
