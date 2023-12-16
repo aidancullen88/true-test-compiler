@@ -1,2 +1,2 @@
-let int test_int = 5;
-let int y = test_int * 5;
+let int test_int = 5 * 5;
+let int y = test_int * 2;
