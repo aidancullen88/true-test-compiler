@@ -20,10 +20,7 @@ pub fn build(
     program_instruction_list.push(format!("mov rbp, rsp"));
     // This stack offset starts at 8 (for u64, currently the only data type supported)
     let mut stack_offset_counter = 8;
-    while statements.len() != 0 {
-        let stmt_to_build = statements
-            .pop_front()
-            .expect("We check for an element in the while loop");
+    while let Some(stmt_to_build) = statements.pop_front() {
         let mut instruction_list = build_statement(
             &stmt_to_build,
             &mut reg_list,
@@ -81,7 +78,10 @@ fn build_statement(
                             _type: s_type.clone(),
                         },
                     );
-                    instruction_list.push(format!("push {}   ; save {} to [rbp - {}]", reg, id, stack_offset_counter));
+                    instruction_list.push(format!(
+                        "push {}   ; save {} to [rbp - {}]",
+                        reg, id, stack_offset_counter
+                    ));
                     reg_list.push_back(reg);
                     *stack_offset_counter += 8;
                     instruction_list
@@ -99,7 +99,10 @@ fn build_statement(
                     // Note that for u64s we move the entire qword at that stack address into rax.
                     // This would change for bool, char etc
                     instruction_list.push(format!("mov rax, qword [rbp - {}]", offset));
-                    instruction_list.push(format!("push rax   ; save {} to [rbp - {}]", id, stack_offset_counter));
+                    instruction_list.push(format!(
+                        "push rax   ; save {} to [rbp - {}]",
+                        id, stack_offset_counter
+                    ));
                     *stack_offset_counter += 8;
                     instruction_list
                 }
@@ -123,8 +126,6 @@ fn build_expr(
             let right_addr = build_expr(right, reg_list, instruction_list, symbol_table);
 
             // Init left and right reg to be assigned in the match
-            let left_reg: &str;
-            let right_reg: &str;
 
             // Match the return addresses from the recursive build_expr calls
             // If the return address is on the stack then pop it and set the
@@ -132,33 +133,33 @@ fn build_expr(
             // If the return address is a stack offset, move that qword into the respective
             // register.
             // Otherwise, set the side reg to the reg that was returned
-            match right_addr {
+            let right_reg = match right_addr {
                 InnerAddrType::Stack => {
                     instruction_list.push(format!("pop rcx"));
-                    right_reg = "rcx";
+                    "rcx"
                 }
                 InnerAddrType::Reg(ref reg) => {
-                    right_reg = reg;
+                    reg
                 }
                 InnerAddrType::StackOffset(offset) => {
                     instruction_list.push(format!("mov rcx, qword [rbp - {}]", offset));
-                    right_reg = "rcx";
+                    "rcx"
                 }
-            }
+            };
 
-            match left_addr {
+            let left_reg = match left_addr {
                 InnerAddrType::Stack => {
                     instruction_list.push(format!("pop rax"));
-                    left_reg = "rax";
+                    "rax"
                 }
                 InnerAddrType::Reg(ref reg) => {
-                    left_reg = &reg;
+                    reg
                 }
                 InnerAddrType::StackOffset(offset) => {
                     instruction_list.push(format!("mov rax, qword [rbp - {}]", offset));
-                    left_reg = "rax";
+                    "rax"
                 }
-            }
+            };
 
             // Add the actual operation instructions
             match op.lexeme() {

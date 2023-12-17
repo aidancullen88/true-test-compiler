@@ -83,7 +83,12 @@ fn parse_identifier(tokens: &mut VecDeque<Token>) -> (Type, String) {
                     .to_string(),
             ),
             // Type error: unrecgonised type
-            _ => panic!("Unrecognised type \"{}\" at {}:{}", token.lexeme(), token.line_info().0, token.line_info().1),
+            _ => panic!(
+                "Unrecognised type \"{}\" at {}:{}",
+                token.lexeme(),
+                token.line_info().0,
+                token.line_info().1
+            ),
         }
     } else {
         // Parse error: can't have let without a token
