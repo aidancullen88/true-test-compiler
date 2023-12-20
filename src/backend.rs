@@ -1,7 +1,9 @@
 use core::panic;
 use std::collections::{HashMap, VecDeque};
 
-use crate::representations::{Expression, InnerAddrType, Statement, Symbol, TokenType};
+use crate::representations::{
+    Block, Expression, InnerAddrType, Statement, Symbol, TokenType, Type,
+};
 
 // Build a list of statements into their instructions: module entry point
 pub fn build(
@@ -108,6 +110,44 @@ fn build_statement(
                 }
             }
         }
+        Statement::If(expr, block) => {
+            build_expr(&expr, reg_list, &mut instruction_list, symbol_table);
+            instruction_list.push(format!("cmp al, 1"));
+            instruction_list.push(format!("jne cont"));
+            instruction_list.append(&mut build_block(
+                block,
+                reg_list,
+                symbol_table,
+                stack_offset_counter,
+            ));
+            instruction_list.push(format!("cont:"));
+            instruction_list
+        }
+        // Statement::IfElse(expr, if_block, else_block) => {
+        //     // TODO
+        // }
+        _ => panic!("Doesn't support that sort of statement yet!"),
+    }
+}
+
+fn build_block(
+    block: &Block,
+    reg_list: &mut VecDeque<String>,
+    symbol_table: &mut HashMap<String, Symbol>,
+    stack_offset_counter: &mut u32,
+) -> Vec<String> {
+    match block {
+        Block::Statement(stmt) => {
+            return build_statement(&stmt, reg_list, symbol_table, stack_offset_counter)
+        }
+        Block::Block(stmt, block) => {
+            let mut stmt_instructions =
+                build_statement(&stmt, reg_list, symbol_table, stack_offset_counter);
+            let mut block_instructions =
+                build_block(block, reg_list, symbol_table, stack_offset_counter);
+            stmt_instructions.append(&mut block_instructions);
+            stmt_instructions
+        }
     }
 }
 
@@ -138,9 +178,7 @@ fn build_expr(
                     instruction_list.push(format!("pop rcx"));
                     "rcx"
                 }
-                InnerAddrType::Reg(ref reg) => {
-                    reg
-                }
+                InnerAddrType::Reg(ref reg) => reg,
                 InnerAddrType::StackOffset(offset) => {
                     instruction_list.push(format!("mov rcx, qword [rbp - {}]", offset));
                     "rcx"
@@ -152,9 +190,7 @@ fn build_expr(
                     instruction_list.push(format!("pop rax"));
                     "rax"
                 }
-                InnerAddrType::Reg(ref reg) => {
-                    reg
-                }
+                InnerAddrType::Reg(ref reg) => reg,
                 InnerAddrType::StackOffset(offset) => {
                     instruction_list.push(format!("mov rax, qword [rbp - {}]", offset));
                     "rax"
@@ -166,34 +202,14 @@ fn build_expr(
                 "+" => {
                     instruction_list.push(format!("add {}, {}", left_reg, right_reg));
                 }
-                "*" => match left_reg {
-                    // match on left reg to see if our value is in rax already
-                    // Mul requires the left operand in rax, so if it is
-                    // then just use that: otherwise move left_reg into rax
-                    // and then back out once the op is done
-                    "rax" => instruction_list.push(format!("mul {}", right_reg)),
-                    _ => {
-                        instruction_list.push(format!("mov rax, {}", left_reg));
-                        instruction_list.push(format!("mul {}", right_reg));
-                        instruction_list.push(format!("mov {}, rax", left_reg));
-                    }
-                },
                 "-" => {
                     instruction_list.push(format!("sub {}, {}", left_reg, right_reg));
                 }
-                "/" => {
-                    // div requires rdx (where it puts the remainder) to be 0 or it will segfault
-                    instruction_list.push(format!("xor rdx, rdx"));
-                    match left_reg {
-                        // Same idea as mul above
-                        "rax" => instruction_list.push(format!("div {}", right_reg)),
-                        _ => {
-                            instruction_list.push(format!("mov rax, {}", left_reg));
-                            instruction_list.push(format!("div {}", right_reg));
-                            instruction_list.push(format!("mov {}, rax", left_reg));
-                        }
-                    }
+                operation @ ("*" | "/") => {
+                    instruction_list.append(&mut build_factor_op(left_reg, right_reg, operation))
                 }
+                operation @ ("==" | "!=" | "<" | ">" | "<=" | ">=") => instruction_list
+                    .append(&mut build_comparison_op(left_reg, right_reg, operation)),
                 // Other types of op that aren't implemented yet like ^ etc
                 _ => panic!("Can't handle {} yet", op.lexeme()),
             };
@@ -245,7 +261,20 @@ fn build_expr(
             },
             TokenType::Literal => match reg_list.pop_front() {
                 Some(reg) => {
-                    instruction_list.push(format!("mov {}, {}", reg, token.lexeme()));
+                    match token._type() {
+                        Type::Bool => {
+                            let bool_int = bool_to_int(token.lexeme());
+                            instruction_list.push(format!("mov {}b, {}", reg, bool_int));
+                        }
+                        Type::Int => {
+                            instruction_list.push(format!("mov {}, {}", reg, token.lexeme()))
+                        }
+                        _ => panic!(
+                            "Literal of type none at {}:{}",
+                            token.line_number(),
+                            token.line_index(),
+                        ),
+                    }
                     return InnerAddrType::Reg(reg);
                 }
                 None => {
@@ -260,4 +289,43 @@ fn build_expr(
         Expression::Group(_, expr, _) => build_expr(expr, reg_list, instruction_list, symbol_table),
         _ => panic!("Expression must be a binary expression"),
     }
+}
+
+fn bool_to_int(bool: &str) -> u8 {
+    match bool {
+        "true" => 1,
+        "false" => 0,
+        _ => panic!("{} is not a bool value!", bool),
+    }
+}
+
+fn build_comparison_op(left_reg: &str, right_reg: &str, operation: &str) -> Vec<String> {
+    let compare = format!("cmp {}, {}", left_reg, right_reg);
+    let set8 = match operation {
+        "==" => format!("sete al"),
+        "<" => format!("setb al"),
+        ">" => format!("seta al"),
+        "!=" => format!("setne al"),
+        "<=" => format!("setbe al"),
+        ">=" => format!("setae al"),
+        _ => panic!("Unrecognised op {}!", operation),
+    };
+    let assign = format!("movzx {}, al", left_reg);
+    vec![compare, set8, assign]
+}
+
+fn build_factor_op(left_reg: &str, right_reg: &str, operation: &str) -> Vec<String> {
+    let mut factor_op = Vec::<String>::new();
+    factor_op.push(format!("mov rax, {}", left_reg));
+    let mut op = match operation {
+        "*" => vec![format!("mul {}", right_reg)],
+        "/" => vec![format!("xor rdx, rdx"), format!("div {}", right_reg)],
+        _ => panic!("Unrecognised factor op {}", operation),
+    };
+    if left_reg == "rax" {
+        return op;
+    };
+    factor_op.append(&mut op);
+    factor_op.push(format!("mov {}, rax", left_reg));
+    factor_op
 }

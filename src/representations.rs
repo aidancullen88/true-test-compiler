@@ -37,8 +37,12 @@ impl Token {
         &self.token_type
     }
 
-    pub fn line_info(&self) -> (&usize, &usize) {
-        (&self.line_number, &self.line_index)
+    pub fn line_number(&self) -> &usize {
+        &self.line_number
+    }
+
+    pub fn line_index(&self) -> &usize {
+        &self.line_index
     }
 }
 
@@ -60,8 +64,17 @@ pub enum TokenType {
 }
 
 #[derive(Debug, Clone)]
+pub enum Block {
+    Statement(Statement),
+    Block(Statement, Box<Block>),
+}
+
+#[derive(Debug, Clone)]
 pub enum Statement {
     Assignment(Type, String, Expression),
+    If(Expression, Box<Block>),
+    IfElse(Expression, Box<Block>, Box<Block>),
+    Block(Box<Block>),
 }
 
 #[derive(Debug, Clone)]

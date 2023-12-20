@@ -6,3 +6,7 @@ error: separate error types for synatx, type, expression etc
 for parser: don't store bracket tokens for groups
 
 for stack: grows 8 bytes downwards for each 64 bit integer
+
+allocate stack space first and then mov to m64 rather than push each var
+
+CHANGE SYMBOL AND LITERAL/PRIMARY!!!

@@ -1,0 +1,8 @@
+block = stmt block | stmt 
+stmt = assignment | if | ifelse
+if = expr "{" block "}" ";"
+ifelse = expr "{" block "}" else "{" block "}" ";"
+assignment = "let" type id "=" expr ";"
+type = "int" | "bool"
+id = alphanum (alphanum | "_")*
+expr = see expr

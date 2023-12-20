@@ -1,5 +1,6 @@
-use crate::representations::{Expression, Statement, Symbol, Token, TokenType, Type};
+use crate::representations::{Block, Expression, Statement, Symbol, Token, TokenType, Type};
 
+use core::panic;
 use std::collections::{HashMap, VecDeque};
 
 pub fn parse_tokens(
@@ -13,6 +14,22 @@ pub fn parse_tokens(
     }
 
     statement_list
+}
+
+fn parse_block(tokens: &mut VecDeque<Token>, symbol_table: &mut HashMap<String, Symbol>) -> Block {
+    match tokens.pop_front() {
+        Some(token) => {
+            tokens.push_front(token);
+            let stmt = parse_statement(tokens, symbol_table);
+            match lookahead(tokens, "}") {
+                true => return Block::Statement(stmt),
+                false => {
+                    return Block::Block(stmt, Box::new(parse_block(tokens, symbol_table)));
+                }
+            }
+        }
+        None => panic!("block with no tokens!"),
+    }
 }
 
 fn parse_statement(
@@ -30,26 +47,57 @@ fn parse_statement(
                         if statement_type == expr_type {
                             match tokens.pop_front().expect("Should be a ; here").lexeme() {
                                 ";" => {
-                                    // TODO: Should check if id already exists as this would be an
-                                    // error
-                                    symbol_table.insert(
-                                        identifier.clone(),
-                                        Symbol {
-                                            stack_offset: None,
-                                            _type: statement_type.clone(),
-                                        },
-                                    );
-                                    Statement::Assignment(statement_type, identifier, expr)
+                                    if let Some(_) = symbol_table.get(&identifier) {
+                                        panic!(
+                                            "{} already exists and cannot be assigned again!",
+                                            &identifier
+                                        )
+                                    } else {
+                                        symbol_table.insert(
+                                            identifier.clone(),
+                                            Symbol {
+                                                stack_offset: None,
+                                                _type: statement_type.clone(),
+                                            },
+                                        );
+                                        Statement::Assignment(statement_type, identifier, expr)
+                                    }
                                 }
                                 _ => panic!("Should end with a ;"),
                             }
                         } else {
                             // Type error: needs handling
-                            panic!("Expression and statement have different types!")
+                            panic!(
+                                "Expression and statement have different types! at line {}",
+                                token.line_number()
+                            )
                         }
                     }
                     // parse error: needs handling
                     _ => panic!("Should only be an = here"),
+                }
+            }
+            "if" => {
+                let (expr, expr_type) = parse_expression(tokens, symbol_table);
+                if expr_type != Type::Bool {
+                    panic!("Must be boolean expression!");
+                }
+                match tokens
+                    .pop_front()
+                    .expect("Should be a { or expr here")
+                    .lexeme()
+                {
+                    "{" => {
+                        let block = parse_block(tokens, symbol_table);
+                        match tokens.pop_front().expect("Should be a } here").lexeme() {
+                            "}" => return Statement::If(expr, Box::new(block)),
+                            _ => panic!("Need a closing brace here"),
+                        }
+                    }
+                    _ => {
+                        let stmt = parse_block(tokens, symbol_table);
+                        return Statement::If(expr, Box::new(stmt));
+                    }
                 }
             }
             // Parse error: needs handling
@@ -86,8 +134,8 @@ fn parse_identifier(tokens: &mut VecDeque<Token>) -> (Type, String) {
             _ => panic!(
                 "Unrecognised type \"{}\" at {}:{}",
                 token.lexeme(),
-                token.line_info().0,
-                token.line_info().1
+                token.line_number(),
+                token.line_index()
             ),
         }
     } else {
@@ -140,7 +188,7 @@ fn parse_comparision(
     let (mut expr, mut _type) = parse_term(tokens, symbol_table);
     while let Some(token) = tokens.pop_front() {
         match token.lexeme() {
-            "<" | ">" => {
+            "<" | ">" | "<=" | ">=" => {
                 let (right_expr, right_type) = parse_term(tokens, symbol_table);
                 if _type == Type::Int && right_type == Type::Int {
                     _type = Type::Bool;
@@ -273,10 +321,27 @@ fn parse_primary(
                     },
                 }
             }
-            _ => panic!("{} is not a valid primary token", token.lexeme()),
+            _ => panic!(
+                "{} is not a valid primary token at {}:{}",
+                token.lexeme(),
+                token.line_number(),
+                token.line_index()
+            ),
         }
     } else {
         // Parse error: expected a literal or id
         panic!("No primary tokens!")
+    }
+}
+
+fn lookahead(tokens: &VecDeque<Token>, match_lexeme: &str) -> bool {
+    if let Some(token) = tokens.get(0) {
+        if token.lexeme() == match_lexeme {
+            return true;
+        } else {
+            return false;
+        }
+    } else {
+        panic!("No tokens to look ahead at!")
     }
 }

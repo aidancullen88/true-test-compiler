@@ -49,7 +49,9 @@ _start:
     .to_string();
 
     for line in asm_lines {
-        output_string.push_str("    ");
+        if !line.contains(":") {
+            output_string.push_str("    ");
+        }
         output_string.push_str(line.as_str());
         output_string.push_str("\n");
     }

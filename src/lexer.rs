@@ -29,7 +29,7 @@ pub fn lexer(mut src: String) -> VecDeque<Token> {
         //      Look ahead and consume all chars, produce a token and the no.
         //      of chars consumed
         match first_char {
-            ';' | '(' | ')' => {
+            ';' | '(' | ')' | '{' | '}' => {
                 tokens.push_back(consume_token(
                     &mut src,
                     1,
@@ -41,7 +41,7 @@ pub fn lexer(mut src: String) -> VecDeque<Token> {
                 src_index += 1;
                 line_index += 1;
             }
-            '+' | '-' | '/' | '*' | '<' | '>' => {
+            '+' | '-' | '/' | '*' => {
                 tokens.push_back(consume_token(
                     &mut src,
                     1,
@@ -64,7 +64,7 @@ pub fn lexer(mut src: String) -> VecDeque<Token> {
                 line_index = 1;
                 line_number += 1;
             }
-            '=' => {
+            '=' | '!' | '<' | '>' => {
                 let (token, index) =
                     check_multi_char_operator(&mut src, line_number, line_index, '=');
                 tokens.push_back(token);
@@ -131,11 +131,13 @@ fn check_literal_identifier_or_keyword(
     };
 
     // check if the lexeme is a literal (starts with a number)
-    match lexeme
-        .chars()
-        .nth(0)
-        .expect("lexeme should always have at least 1 char!")
-    {
+    match lexeme.chars().nth(0).expect(
+        format!(
+            "lexeme should always have at least 1 char!\n src is {:?}",
+            &lexeme
+        )
+        .as_str(),
+    ) {
         c if c.is_ascii_digit() => {
             return (
                 consume_token(
@@ -172,7 +174,7 @@ fn check_literal_identifier_or_keyword(
                 ),
                 lexume_index,
             ),
-            "let" | "int" | "bool" => (
+            "let" | "int" | "bool" | "if" | "else" | "elif" => (
                 consume_token(
                     src,
                     lexume_index,
@@ -218,7 +220,7 @@ fn check_multi_char_operator(
     match look_ahead(src, to_match) {
         // lookup the two char op table to get TokenType
         true => match &src[..2] {
-            "==" | "!=" => (
+            "==" | "!=" | "<=" | ">=" => (
                 consume_token(
                     src,
                     2,
@@ -245,8 +247,23 @@ fn check_multi_char_operator(
                 ),
                 1,
             ),
-            // If none, add invalid (for now)
-            _ => panic!("Invalid char at {} {}", line_number, line_index),
+            "<" | ">" => (
+                consume_token(
+                    src,
+                    1,
+                    Type::None,
+                    TokenType::Operator,
+                    line_number,
+                    line_index,
+                ),
+                1,
+            ),
+            _ => panic!(
+                "Invalid char {} at {}:{}",
+                &src[..1],
+                line_number,
+                line_index
+            ),
         },
     }
 }
