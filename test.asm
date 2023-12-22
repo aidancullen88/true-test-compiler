@@ -5,18 +5,19 @@ section .text
 _start:
     mov rbp, rsp
     mov r8, 2
-    push r8   ; save x to [rbp - 8]
-    mov r9, 2
-    mov rax, qword [rbp - 8]
-    cmp rax, r9
-    setne al
-    movzx rax, al
-    mov r10, rax
-    cmp al, 1
-    jne cont
-    mov r11, 5
+    mov r9, 3
+    cmp r8, r9
+    setb al
+    movzx r8, al
+    cmp al, 1    ; if_else_1
+    jne else_1
+    mov r10, 5
+    push r10   ; save x to [rbp - 8]
+    jmp end_if_else_1
+else_1:
+    mov r11, 1
     push r11   ; save y to [rbp - 16]
-cont:
+end_if_else_1:
     pop rdi
     mov rax, 60
     syscall

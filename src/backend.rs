@@ -22,12 +22,15 @@ pub fn build(
     program_instruction_list.push(format!("mov rbp, rsp"));
     // This stack offset starts at 8 (for u64, currently the only data type supported)
     let mut stack_offset_counter = 8;
+    let mut label_counter = 1;
+
     while let Some(stmt_to_build) = statements.pop_front() {
         let mut instruction_list = build_statement(
             &stmt_to_build,
             &mut reg_list,
             symbol_table,
             &mut stack_offset_counter,
+            &mut label_counter,
         );
         program_instruction_list.append(&mut instruction_list);
     }
@@ -42,6 +45,7 @@ fn build_statement(
     reg_list: &mut VecDeque<String>,
     symbol_table: &mut HashMap<String, Symbol>,
     stack_offset_counter: &mut u32,
+    label_counter: &mut u32,
 ) -> Vec<String> {
     // The instruction list for each statement. Appended above into the overall program instruction
     // list
@@ -110,23 +114,31 @@ fn build_statement(
                 }
             }
         }
-        Statement::If(expr, block) => {
+        Statement::If(expr, if_block) => {
             build_expr(&expr, reg_list, &mut instruction_list, symbol_table);
-            instruction_list.push(format!("cmp al, 1"));
-            instruction_list.push(format!("jne cont"));
-            instruction_list.append(&mut build_block(
-                block,
-                reg_list,
-                symbol_table,
-                stack_offset_counter,
-            ));
-            instruction_list.push(format!("cont:"));
+            instruction_list.push(format!("cmp al, 1    ; if_{}", label_counter));
+            instruction_list.push(format!("jne endif_{}", &label_counter));
+            instruction_list.append(&mut build_statement(if_block, reg_list, symbol_table, stack_offset_counter, label_counter));
+            instruction_list.push(format!("endif_{}:", label_counter));
+            *label_counter += 1;
             instruction_list
         }
-        // Statement::IfElse(expr, if_block, else_block) => {
-        //     // TODO
-        // }
-        _ => panic!("Doesn't support that sort of statement yet!"),
+        Statement::IfElse(expr, if_block, else_block) => {
+            build_expr(&expr, reg_list, &mut instruction_list, symbol_table);
+            instruction_list.push(format!("cmp al, 1    ; if_else_{}", label_counter));
+            instruction_list.push(format!("jne else_{}", label_counter));
+            instruction_list.append(&mut build_statement(if_block, reg_list, symbol_table, stack_offset_counter, label_counter));
+            instruction_list.push(format!("jmp end_if_else_{}", label_counter));
+            instruction_list.push(format!("else_{}:", label_counter));
+            instruction_list.append(&mut build_statement(else_block, reg_list, symbol_table, stack_offset_counter, label_counter));
+            instruction_list.push(format!("end_if_else_{}:", label_counter));
+            *label_counter += 1;
+            instruction_list
+        },
+        Statement::Block(block) => {
+            instruction_list.append(&mut build_block(block, reg_list, symbol_table, stack_offset_counter, label_counter));
+            instruction_list
+        }
     }
 }
 
@@ -135,16 +147,17 @@ fn build_block(
     reg_list: &mut VecDeque<String>,
     symbol_table: &mut HashMap<String, Symbol>,
     stack_offset_counter: &mut u32,
+    label_counter: &mut u32,
 ) -> Vec<String> {
     match block {
         Block::Statement(stmt) => {
-            return build_statement(&stmt, reg_list, symbol_table, stack_offset_counter)
+            return build_statement(&stmt, reg_list, symbol_table, stack_offset_counter, label_counter)
         }
         Block::Block(stmt, block) => {
             let mut stmt_instructions =
-                build_statement(&stmt, reg_list, symbol_table, stack_offset_counter);
+                build_statement(&stmt, reg_list, symbol_table, stack_offset_counter, label_counter);
             let mut block_instructions =
-                build_block(block, reg_list, symbol_table, stack_offset_counter);
+                build_block(block, reg_list, symbol_table, stack_offset_counter, label_counter);
             stmt_instructions.append(&mut block_instructions);
             stmt_instructions
         }

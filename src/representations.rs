@@ -72,8 +72,8 @@ pub enum Block {
 #[derive(Debug, Clone)]
 pub enum Statement {
     Assignment(Type, String, Expression),
-    If(Expression, Box<Block>),
-    IfElse(Expression, Box<Block>, Box<Block>),
+    If(Expression, Box<Statement>),
+    IfElse(Expression, Box<Statement>, Box<Statement>),
     Block(Box<Block>),
 }
 

@@ -82,26 +82,28 @@ fn parse_statement(
                 if expr_type != Type::Bool {
                     panic!("Must be boolean expression!");
                 }
-                match tokens
-                    .pop_front()
-                    .expect("Should be a { or expr here")
-                    .lexeme()
-                {
-                    "{" => {
-                        let block = parse_block(tokens, symbol_table);
-                        match tokens.pop_front().expect("Should be a } here").lexeme() {
-                            "}" => return Statement::If(expr, Box::new(block)),
-                            _ => panic!("Need a closing brace here"),
-                        }
+                let if_block = parse_statement(tokens, symbol_table);
+                match lookahead(tokens, "else") {
+                    false => return Statement::If(expr, Box::new(if_block)),
+                    true => {
+                        tokens.pop_front().expect("Already checked that a token exists");
+                        let else_block = parse_statement(tokens, symbol_table);
+                        return Statement::IfElse(expr, Box::new(if_block), Box::new(else_block))
                     }
-                    _ => {
-                        let stmt = parse_block(tokens, symbol_table);
-                        return Statement::If(expr, Box::new(stmt));
-                    }
+                }
+            },
+            "{" => {
+                let block = parse_block(tokens, symbol_table);
+                match tokens.pop_front() {
+                    Some(token) => match token.lexeme() {
+                        "}" => return Statement::Block(Box::new(block)),
+                        _ => panic!("Should be a }} at {}:{}", token.line_number(), token.line_index())
+                    },
+                    None => panic!("File ended without closing brace")
                 }
             }
             // Parse error: needs handling
-            _ => panic!("This would be an error because we only have LET now"),
+            _ => panic!("{} is not a recognised statement token!", token.lexeme()),
         }
     } else {
         // Actual error as statement should never be called without at least 1 token!
@@ -336,6 +338,7 @@ fn parse_primary(
 
 fn lookahead(tokens: &VecDeque<Token>, match_lexeme: &str) -> bool {
     if let Some(token) = tokens.get(0) {
+        println!("\n{}:{}\n", &token.lexeme(), match_lexeme);
         if token.lexeme() == match_lexeme {
             return true;
         } else {

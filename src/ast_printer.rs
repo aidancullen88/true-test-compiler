@@ -9,7 +9,15 @@ pub fn statement_pretty_printer(stmt: &Statement) {
         Statement::If(expr, block) => {
             print!("if ");
             ast_pretty_printer(&expr);
-            block_pretty_printer(&block)
+            statement_pretty_printer(&block)
+        },
+        Statement::IfElse(expr, if_block, else_block) => {
+            print!("if ");
+            ast_pretty_printer(&expr);
+            print!(" ");
+            statement_pretty_printer(&if_block);
+            print!("\nelse ");
+            statement_pretty_printer(&else_block);
         }
         Statement::Block(block) => match block.as_ref() {
             Block::Statement(stmt) => statement_pretty_printer(&stmt),
@@ -18,7 +26,6 @@ pub fn statement_pretty_printer(stmt: &Statement) {
                 block_pretty_printer(&block);
             }
         },
-        _ => panic!("can't print this yet"),
     }
 }
 
