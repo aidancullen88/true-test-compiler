@@ -187,7 +187,7 @@ fn build_cmp_instructions(expr: &Expression, if_label: &str, instruction_list: &
                 ">" => "jl",
                 "<=" => "jge",
                 ">=" => "jle",
-                _ => panic!("Should never be a non bool op in if statment expr"),
+                _ => panic!("Should never be a non bool op in if statement expr"),
             };
             // Add the jump instruction for the end of the if block, along with some nice debug
             // comments
