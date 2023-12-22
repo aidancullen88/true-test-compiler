@@ -1,5 +1,5 @@
-if 2 < 3 {
+if 4 < 3 {
     let int x = 5;
 } else {
-    let int y = 1;
+    let int y = 2;
 }

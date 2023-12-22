@@ -10,7 +10,7 @@ pub fn statement_pretty_printer(stmt: &Statement) {
             print!("if ");
             ast_pretty_printer(&expr);
             statement_pretty_printer(&block)
-        },
+        }
         Statement::IfElse(expr, if_block, else_block) => {
             print!("if ");
             ast_pretty_printer(&expr);

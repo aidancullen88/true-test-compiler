@@ -86,20 +86,26 @@ fn parse_statement(
                 match lookahead(tokens, "else") {
                     false => return Statement::If(expr, Box::new(if_block)),
                     true => {
-                        tokens.pop_front().expect("Already checked that a token exists");
+                        tokens
+                            .pop_front()
+                            .expect("Already checked that a token exists");
                         let else_block = parse_statement(tokens, symbol_table);
-                        return Statement::IfElse(expr, Box::new(if_block), Box::new(else_block))
+                        return Statement::IfElse(expr, Box::new(if_block), Box::new(else_block));
                     }
                 }
-            },
+            }
             "{" => {
                 let block = parse_block(tokens, symbol_table);
                 match tokens.pop_front() {
                     Some(token) => match token.lexeme() {
                         "}" => return Statement::Block(Box::new(block)),
-                        _ => panic!("Should be a }} at {}:{}", token.line_number(), token.line_index())
+                        _ => panic!(
+                            "Should be a }} at {}:{}",
+                            token.line_number(),
+                            token.line_index()
+                        ),
                     },
-                    None => panic!("File ended without closing brace")
+                    None => panic!("File ended without closing brace"),
                 }
             }
             // Parse error: needs handling
@@ -345,6 +351,6 @@ fn lookahead(tokens: &VecDeque<Token>, match_lexeme: &str) -> bool {
             return false;
         }
     } else {
-        panic!("No tokens to look ahead at!")
+        false
     }
 }

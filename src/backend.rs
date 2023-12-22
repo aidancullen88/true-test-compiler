@@ -115,30 +115,85 @@ fn build_statement(
             }
         }
         Statement::If(expr, if_block) => {
-            build_expr(&expr, reg_list, &mut instruction_list, symbol_table);
-            instruction_list.push(format!("cmp al, 1    ; if_{}", label_counter));
-            instruction_list.push(format!("jne endif_{}", &label_counter));
-            instruction_list.append(&mut build_statement(if_block, reg_list, symbol_table, stack_offset_counter, label_counter));
-            instruction_list.push(format!("endif_{}:", label_counter));
-            *label_counter += 1;
-            instruction_list
+            match expr {
+                Expression::Binary(_, _, _) => {
+                    let if_label = format!("end_if_{}", label_counter);
+                    build_cmp_instructions(expr, &if_label, &mut instruction_list, symbol_table, reg_list);
+                    instruction_list.append(&mut build_statement(
+                        &if_block,
+                        reg_list,
+                        symbol_table,
+                        stack_offset_counter,
+                        label_counter,
+                    ));
+                    instruction_list.push(format!("{}:", if_label));
+                    *label_counter += 1;
+                    instruction_list
+                }
+                _ => panic!("not implemented yet"),
+            }
         }
         Statement::IfElse(expr, if_block, else_block) => {
-            build_expr(&expr, reg_list, &mut instruction_list, symbol_table);
-            instruction_list.push(format!("cmp al, 1    ; if_else_{}", label_counter));
-            instruction_list.push(format!("jne else_{}", label_counter));
-            instruction_list.append(&mut build_statement(if_block, reg_list, symbol_table, stack_offset_counter, label_counter));
-            instruction_list.push(format!("jmp end_if_else_{}", label_counter));
-            instruction_list.push(format!("else_{}:", label_counter));
-            instruction_list.append(&mut build_statement(else_block, reg_list, symbol_table, stack_offset_counter, label_counter));
-            instruction_list.push(format!("end_if_else_{}:", label_counter));
-            *label_counter += 1;
-            instruction_list
-        },
+            match expr {
+                Expression::Binary(_, _, _) => {
+                    let if_else_label = format!("if_else_{}", label_counter);
+                    build_cmp_instructions(expr, &if_else_label, &mut instruction_list, symbol_table, reg_list);
+                    instruction_list.append(&mut build_statement(&if_block, reg_list, symbol_table, stack_offset_counter, label_counter));
+                    instruction_list.push(format!("jmp end_{}", if_else_label));
+                    instruction_list.push(format!("{}:", if_else_label));
+                    instruction_list.append(&mut build_statement(&else_block, reg_list, symbol_table, stack_offset_counter, label_counter));
+                    instruction_list.push(format!("end_{}:", if_else_label));
+                    *label_counter += 1;
+                    instruction_list
+                },
+                _ => panic!("Not implemented yet")
+            }
+        }
         Statement::Block(block) => {
-            instruction_list.append(&mut build_block(block, reg_list, symbol_table, stack_offset_counter, label_counter));
+            instruction_list.append(&mut build_block(
+                block,
+                reg_list,
+                symbol_table,
+                stack_offset_counter,
+                label_counter,
+            ));
             instruction_list
         }
+    }
+}
+
+fn build_cmp_instructions(expr: &Expression, if_label: &str, instruction_list: &mut Vec<String>, symbol_table: &mut HashMap<String, Symbol>, reg_list: &mut VecDeque<String>) {
+    match expr {
+        Expression::Binary(left_expr, op, right_expr) => {
+            // compute the value of each expr and move it into _addr
+            // Then, get the string representation of left_addr
+            let left_addr = get_inner_register(
+                &build_expr(&left_expr, reg_list, instruction_list, symbol_table),
+                "rax",
+                instruction_list,
+            );
+            let right_addr = get_inner_register(
+                &build_expr(&right_expr, reg_list, instruction_list, symbol_table),
+                "rcx",
+                instruction_list,
+            );
+            // Add the cmp instruction using the addresses computed above
+            instruction_list.push(format!("cmp {}, {}", left_addr, right_addr));
+            // Match the operation and get the inverse instruction (needed for easy asm layout)
+            let jump_instr = match op.lexeme() {
+                "==" => "jne",
+                "!=" => "je",
+                "<" => "jg",
+                ">" => "jl",
+                "<=" => "jge",
+                ">=" => "jle",
+                _ => panic!("Should never be a non bool op in if statment expr"),
+            };
+            // Add the jump instruction for the end of the if block, along with some nice debug
+            // comments
+            instruction_list.push(format!("{} {}    ; op is '{}'\n    ; if block", jump_instr, if_label, op.lexeme()));
+        },
+        _ => panic!("can;t do this yet")
     }
 }
 
@@ -151,15 +206,55 @@ fn build_block(
 ) -> Vec<String> {
     match block {
         Block::Statement(stmt) => {
-            return build_statement(&stmt, reg_list, symbol_table, stack_offset_counter, label_counter)
+            return build_statement(
+                &stmt,
+                reg_list,
+                symbol_table,
+                stack_offset_counter,
+                label_counter,
+            )
         }
         Block::Block(stmt, block) => {
-            let mut stmt_instructions =
-                build_statement(&stmt, reg_list, symbol_table, stack_offset_counter, label_counter);
-            let mut block_instructions =
-                build_block(block, reg_list, symbol_table, stack_offset_counter, label_counter);
+            let mut stmt_instructions = build_statement(
+                &stmt,
+                reg_list,
+                symbol_table,
+                stack_offset_counter,
+                label_counter,
+            );
+            let mut block_instructions = build_block(
+                block,
+                reg_list,
+                symbol_table,
+                stack_offset_counter,
+                label_counter,
+            );
             stmt_instructions.append(&mut block_instructions);
             stmt_instructions
+        }
+    }
+}
+
+fn get_inner_register(
+    addr: &InnerAddrType,
+    default: &str,
+    instruction_list: &mut Vec<String>,
+) -> String {
+    // Match the return addresses from the recursive build_expr calls
+    // If the return address is on the stack then pop it and set the
+    // side reg to rax/rcx.
+    // If the return address is a stack offset, move that qword into the respective
+    // register.
+    // Otherwise, set the side reg to the reg that was returned
+    match addr {
+        InnerAddrType::Stack => {
+            instruction_list.push(format!("pop {}", default));
+            default.to_string()
+        }
+        InnerAddrType::Reg(ref reg) => reg.to_string(),
+        InnerAddrType::StackOffset(offset) => {
+            instruction_list.push(format!("mov {}, qword [rbp - {}]", default, offset));
+            default.to_string()
         }
     }
 }
@@ -178,38 +273,8 @@ fn build_expr(
             let left_addr = build_expr(left, reg_list, instruction_list, symbol_table);
             let right_addr = build_expr(right, reg_list, instruction_list, symbol_table);
 
-            // Init left and right reg to be assigned in the match
-
-            // Match the return addresses from the recursive build_expr calls
-            // If the return address is on the stack then pop it and set the
-            // side reg to rax/rcx.
-            // If the return address is a stack offset, move that qword into the respective
-            // register.
-            // Otherwise, set the side reg to the reg that was returned
-            let right_reg = match right_addr {
-                InnerAddrType::Stack => {
-                    instruction_list.push(format!("pop rcx"));
-                    "rcx"
-                }
-                InnerAddrType::Reg(ref reg) => reg,
-                InnerAddrType::StackOffset(offset) => {
-                    instruction_list.push(format!("mov rcx, qword [rbp - {}]", offset));
-                    "rcx"
-                }
-            };
-
-            let left_reg = match left_addr {
-                InnerAddrType::Stack => {
-                    instruction_list.push(format!("pop rax"));
-                    "rax"
-                }
-                InnerAddrType::Reg(ref reg) => reg,
-                InnerAddrType::StackOffset(offset) => {
-                    instruction_list.push(format!("mov rax, qword [rbp - {}]", offset));
-                    "rax"
-                }
-            };
-
+            let right_reg = get_inner_register(&right_addr, "rcx", instruction_list);
+            let left_reg = get_inner_register(&left_addr, "rax", instruction_list);
             // Add the actual operation instructions
             match op.lexeme() {
                 "+" => {
@@ -219,10 +284,10 @@ fn build_expr(
                     instruction_list.push(format!("sub {}, {}", left_reg, right_reg));
                 }
                 operation @ ("*" | "/") => {
-                    instruction_list.append(&mut build_factor_op(left_reg, right_reg, operation))
+                    instruction_list.append(&mut build_factor_op(&left_reg, &right_reg, operation))
                 }
                 operation @ ("==" | "!=" | "<" | ">" | "<=" | ">=") => instruction_list
-                    .append(&mut build_comparison_op(left_reg, right_reg, operation)),
+                    .append(&mut build_comparison_op(&left_reg, &right_reg, operation)),
                 // Other types of op that aren't implemented yet like ^ etc
                 _ => panic!("Can't handle {} yet", op.lexeme()),
             };
