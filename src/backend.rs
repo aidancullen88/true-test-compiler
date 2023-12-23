@@ -53,8 +53,11 @@ fn build_statement(
     match statement {
         // Type checking has already occured but we need the type info to save into our symbol
         // table once the expr is built
-        Statement::Assignment(s_type, id, expr) => {
+        Statement::Assignment(_, id, expr) => {
             let final_loc = build_expr(&expr, reg_list, &mut instruction_list, symbol_table);
+            let symbol_info = symbol_table
+                .get_mut(id)
+                .expect("Symbol should always already exist in table");
             // Depending on what the expression computed was + how many statements have come before
             // this in the function, the location of a variable's value may be a register, the top
             // of the stack, or located at a stack offset (e.g. let int y = x;)
@@ -64,26 +67,14 @@ fn build_statement(
                 // Later, will need to increment by some size of type that could be saved within
                 // the Type enum
                 InnerAddrType::Stack => {
-                    symbol_table.insert(
-                        id.to_string(),
-                        Symbol {
-                            stack_offset: Some(*stack_offset_counter),
-                            _type: s_type.clone(),
-                        },
-                    );
+                    symbol_info.stack_offset = Some(*stack_offset_counter);
                     *stack_offset_counter += 8;
                     instruction_list
                 }
                 // If the value is in a register, push that onto the stack, save the current
                 // offset, and free the register for further computations
                 InnerAddrType::Reg(reg) => {
-                    symbol_table.insert(
-                        id.to_string(),
-                        Symbol {
-                            stack_offset: Some(*stack_offset_counter),
-                            _type: s_type.clone(),
-                        },
-                    );
+                    symbol_info.stack_offset = Some(*stack_offset_counter);
                     instruction_list.push(format!(
                         "push {}   ; save {} to [rbp - {}]",
                         reg, id, stack_offset_counter
@@ -95,13 +86,7 @@ fn build_statement(
                 // If it is a stack offset, then copy the value to the next place in the stack.
                 // Currently there are no pointers/references implemented: everything is copied
                 InnerAddrType::StackOffset(offset) => {
-                    symbol_table.insert(
-                        id.to_string(),
-                        Symbol {
-                            stack_offset: Some(*stack_offset_counter),
-                            _type: s_type.clone(),
-                        },
-                    );
+                    symbol_info.stack_offset = Some(*stack_offset_counter);
                     // Note that for u64s we move the entire qword at that stack address into rax.
                     // This would change for bool, char etc
                     instruction_list.push(format!("mov rax, qword [rbp - {}]", offset));
@@ -114,41 +99,61 @@ fn build_statement(
                 }
             }
         }
-        Statement::If(expr, if_block) => {
-            match expr {
-                Expression::Binary(_, _, _) => {
-                    let if_label = format!("end_if_{}", label_counter);
-                    build_cmp_instructions(expr, &if_label, &mut instruction_list, symbol_table, reg_list);
-                    instruction_list.append(&mut build_statement(
-                        &if_block,
-                        reg_list,
-                        symbol_table,
-                        stack_offset_counter,
-                        label_counter,
-                    ));
-                    instruction_list.push(format!("{}:", if_label));
-                    *label_counter += 1;
-                    instruction_list
-                }
-                _ => panic!("not implemented yet"),
+        Statement::If(expr, if_block) => match expr {
+            Expression::Binary(_, _, _) => {
+                let if_label = format!("end_if_{}", label_counter);
+                build_cmp_instructions(
+                    expr,
+                    &if_label,
+                    &mut instruction_list,
+                    symbol_table,
+                    reg_list,
+                );
+                instruction_list.append(&mut build_statement(
+                    &if_block,
+                    reg_list,
+                    symbol_table,
+                    stack_offset_counter,
+                    label_counter,
+                ));
+                instruction_list.push(format!("{}:", if_label));
+                *label_counter += 1;
+                instruction_list
             }
-        }
-        Statement::IfElse(expr, if_block, else_block) => {
-            match expr {
-                Expression::Binary(_, _, _) => {
-                    let if_else_label = format!("if_else_{}", label_counter);
-                    build_cmp_instructions(expr, &if_else_label, &mut instruction_list, symbol_table, reg_list);
-                    instruction_list.append(&mut build_statement(&if_block, reg_list, symbol_table, stack_offset_counter, label_counter));
-                    instruction_list.push(format!("jmp end_{}", if_else_label));
-                    instruction_list.push(format!("{}:", if_else_label));
-                    instruction_list.append(&mut build_statement(&else_block, reg_list, symbol_table, stack_offset_counter, label_counter));
-                    instruction_list.push(format!("end_{}:", if_else_label));
-                    *label_counter += 1;
-                    instruction_list
-                },
-                _ => panic!("Not implemented yet")
+            _ => panic!("not implemented yet"),
+        },
+        Statement::IfElse(expr, if_block, else_block) => match expr {
+            Expression::Binary(_, _, _) => {
+                let if_else_label = format!("if_else_{}", label_counter);
+                build_cmp_instructions(
+                    expr,
+                    &if_else_label,
+                    &mut instruction_list,
+                    symbol_table,
+                    reg_list,
+                );
+                instruction_list.append(&mut build_statement(
+                    &if_block,
+                    reg_list,
+                    symbol_table,
+                    stack_offset_counter,
+                    label_counter,
+                ));
+                instruction_list.push(format!("jmp end_{}", if_else_label));
+                instruction_list.push(format!("{}:", if_else_label));
+                instruction_list.append(&mut build_statement(
+                    &else_block,
+                    reg_list,
+                    symbol_table,
+                    stack_offset_counter,
+                    label_counter,
+                ));
+                instruction_list.push(format!("end_{}:", if_else_label));
+                *label_counter += 1;
+                instruction_list
             }
-        }
+            _ => panic!("Not implemented yet"),
+        },
         Statement::Block(block) => {
             instruction_list.append(&mut build_block(
                 block,
@@ -162,7 +167,13 @@ fn build_statement(
     }
 }
 
-fn build_cmp_instructions(expr: &Expression, if_label: &str, instruction_list: &mut Vec<String>, symbol_table: &mut HashMap<String, Symbol>, reg_list: &mut VecDeque<String>) {
+fn build_cmp_instructions(
+    expr: &Expression,
+    if_label: &str,
+    instruction_list: &mut Vec<String>,
+    symbol_table: &mut HashMap<String, Symbol>,
+    reg_list: &mut VecDeque<String>,
+) {
     match expr {
         Expression::Binary(left_expr, op, right_expr) => {
             // compute the value of each expr and move it into _addr
@@ -191,9 +202,14 @@ fn build_cmp_instructions(expr: &Expression, if_label: &str, instruction_list: &
             };
             // Add the jump instruction for the end of the if block, along with some nice debug
             // comments
-            instruction_list.push(format!("{} {}    ; op is '{}'\n    ; if block", jump_instr, if_label, op.lexeme()));
-        },
-        _ => panic!("can;t do this yet")
+            instruction_list.push(format!(
+                "{} {}    ; op is '{}'\n    ; if block",
+                jump_instr,
+                if_label,
+                op.lexeme()
+            ));
+        }
+        _ => panic!("can;t do this yet"),
     }
 }
 

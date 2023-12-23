@@ -89,6 +89,7 @@ pub enum Expression {
 pub struct Symbol {
     pub stack_offset: Option<u32>,
     pub _type: Type,
+    pub mutable: bool,
 }
 
 #[derive(Debug)]

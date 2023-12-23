@@ -38,7 +38,7 @@ fn parse_statement(
 ) -> Statement {
     if let Some(token) = tokens.pop_front() {
         match token.lexeme() {
-            "let" => {
+            "const" => {
                 let (statement_type, identifier) = parse_identifier(tokens);
                 match tokens.pop_front().expect("should be a token here").lexeme() {
                     "=" => {
@@ -58,6 +58,7 @@ fn parse_statement(
                                             Symbol {
                                                 stack_offset: None,
                                                 _type: statement_type.clone(),
+                                                mutable: false,
                                             },
                                         );
                                         Statement::Assignment(statement_type, identifier, expr)
@@ -75,6 +76,48 @@ fn parse_statement(
                     }
                     // parse error: needs handling
                     _ => panic!("Should only be an = here"),
+                }
+            }
+            "mut" => {
+                let (stmt_type, id) = parse_identifier(tokens);
+                match tokens
+                    .pop_front()
+                    .expect("Should be an equals here")
+                    .lexeme()
+                {
+                    "=" => {
+                        let (expr, expr_type) = parse_expression(tokens, symbol_table);
+                        if stmt_type == expr_type {
+                            match tokens
+                                .pop_front()
+                                .expect("missing semicolon unexpected EOF")
+                                .lexeme()
+                            {
+                                ";" => {
+                                    if let Some(_) = symbol_table.get(&id) {
+                                        panic!("Cannot re-assign var {}", &id)
+                                    } else {
+                                        symbol_table.insert(
+                                            id.clone(),
+                                            Symbol {
+                                                stack_offset: None,
+                                                _type: stmt_type.clone(),
+                                                mutable: true,
+                                            },
+                                        );
+                                        Statement::Assignment(stmt_type, id, expr)
+                                    }
+                                }
+                                _ => panic!("Expected semicolon line {}", token.line_number()),
+                            }
+                        } else {
+                            panic!(
+                                "Statement type does not make expression type at {}",
+                                token.line_number()
+                            )
+                        }
+                    }
+                    _ => panic!("Must be an equals for assignment"),
                 }
             }
             "if" => {
@@ -109,7 +152,65 @@ fn parse_statement(
                 }
             }
             // Parse error: needs handling
-            _ => panic!("{} is not a recognised statement token!", token.lexeme()),
+            _ => match token.token_type() {
+                TokenType::Identifier => match symbol_table.get(token.lexeme()) {
+                    Some(symbol_info) => {
+                        if !symbol_info.mutable {
+                            panic!(
+                                "Attempted to mutate const var {} at {}:{}",
+                                token.lexeme(),
+                                token.line_number(),
+                                token.line_index()
+                            );
+                        }
+                        match tokens
+                            .pop_front()
+                            .expect("Unexpected EOF: should be equals")
+                            .lexeme()
+                        {
+                            "=" => {
+                                let (expr, expr_type) = parse_expression(tokens, symbol_table);
+                                if symbol_info._type == expr_type {
+                                    match tokens
+                                        .pop_front()
+                                        .expect("Expected semicolon found EOF")
+                                        .lexeme()
+                                    {
+                                        ";" => Statement::Assignment(
+                                            expr_type,
+                                            token.lexeme().to_string(),
+                                            expr,
+                                        ),
+                                        wrong => panic!(
+                                            "Expected ';', found {}, on line {}",
+                                            wrong,
+                                            token.line_number()
+                                        ),
+                                    }
+                                } else {
+                                    panic!(
+                                        "var type does not match expr at {}",
+                                        token.line_number()
+                                    )
+                                }
+                            }
+                            _ => panic!("Should only be equals on line {}", token.line_number()),
+                        }
+                    }
+                    None => panic!(
+                        "Attempted to mutate token {} before assignment {}:{}",
+                        token.lexeme(),
+                        token.line_number(),
+                        token.line_index()
+                    ),
+                },
+                _ => panic!(
+                    "Statement cannot start with {:?} at {}:{}",
+                    token.token_type(),
+                    token.line_number(),
+                    token.line_index()
+                ),
+            },
         }
     } else {
         // Actual error as statement should never be called without at least 1 token!
@@ -154,14 +255,14 @@ fn parse_identifier(tokens: &mut VecDeque<Token>) -> (Type, String) {
 
 fn parse_expression(
     tokens: &mut VecDeque<Token>,
-    symbol_table: &mut HashMap<String, Symbol>,
+    symbol_table: &HashMap<String, Symbol>,
 ) -> (Expression, Type) {
     parse_equality(tokens, symbol_table)
 }
 
 fn parse_equality(
     tokens: &mut VecDeque<Token>,
-    symbol_table: &mut HashMap<String, Symbol>,
+    symbol_table: &HashMap<String, Symbol>,
 ) -> (Expression, Type) {
     let (mut expr, mut _type) = parse_comparision(tokens, symbol_table);
     while let Some(token) = tokens.pop_front() {
@@ -191,7 +292,7 @@ fn parse_equality(
 
 fn parse_comparision(
     tokens: &mut VecDeque<Token>,
-    symbol_table: &mut HashMap<String, Symbol>,
+    symbol_table: &HashMap<String, Symbol>,
 ) -> (Expression, Type) {
     let (mut expr, mut _type) = parse_term(tokens, symbol_table);
     while let Some(token) = tokens.pop_front() {
@@ -218,7 +319,7 @@ fn parse_comparision(
 
 fn parse_term(
     tokens: &mut VecDeque<Token>,
-    symbol_table: &mut HashMap<String, Symbol>,
+    symbol_table: &HashMap<String, Symbol>,
 ) -> (Expression, Type) {
     let (mut expr, mut _type) = parse_factor(tokens, symbol_table);
     while let Some(token) = tokens.pop_front() {
@@ -245,7 +346,7 @@ fn parse_term(
 
 fn parse_factor(
     tokens: &mut VecDeque<Token>,
-    symbol_table: &mut HashMap<String, Symbol>,
+    symbol_table: &HashMap<String, Symbol>,
 ) -> (Expression, Type) {
     let (mut expr, mut _type) = parse_unary(tokens, symbol_table);
     while let Some(token) = tokens.pop_front() {
@@ -272,7 +373,7 @@ fn parse_factor(
 
 fn parse_unary(
     tokens: &mut VecDeque<Token>,
-    symbol_table: &mut HashMap<String, Symbol>,
+    symbol_table: &HashMap<String, Symbol>,
 ) -> (Expression, Type) {
     let first_token = &tokens[0];
     match first_token.lexeme() {
@@ -288,7 +389,7 @@ fn parse_unary(
 
 fn parse_primary(
     tokens: &mut VecDeque<Token>,
-    symbol_table: &mut HashMap<String, Symbol>,
+    symbol_table: &HashMap<String, Symbol>,
 ) -> (Expression, Type) {
     if let Some(token) = tokens.pop_front() {
         match token.token_type() {
@@ -343,8 +444,9 @@ fn parse_primary(
 }
 
 fn lookahead(tokens: &VecDeque<Token>, match_lexeme: &str) -> bool {
-    if let Some(token) = tokens.get(0) {
-        println!("\n{}:{}\n", &token.lexeme(), match_lexeme);
+    if let Some(token)= tokens.get(0) {
+        print!("{} ", token.lexeme());
+        println!("{}", match_lexeme);
         if token.lexeme() == match_lexeme {
             return true;
         } else {
