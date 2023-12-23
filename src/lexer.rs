@@ -174,7 +174,7 @@ fn check_literal_identifier_or_keyword(
                 ),
                 lexume_index,
             ),
-            "const" | "mut" | "int" | "bool" | "if" | "else" | "elif" => (
+            "const" | "mut" | "int" | "bool" | "if" | "else" | "while" => (
                 consume_token(
                     src,
                     lexume_index,

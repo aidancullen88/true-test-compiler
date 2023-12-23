@@ -99,61 +99,92 @@ fn build_statement(
                 }
             }
         }
-        Statement::If(expr, if_block) => match expr {
-            Expression::Binary(_, _, _) => {
-                let if_label = format!("end_if_{}", label_counter);
-                build_cmp_instructions(
-                    expr,
-                    &if_label,
-                    &mut instruction_list,
-                    symbol_table,
-                    reg_list,
-                );
-                instruction_list.append(&mut build_statement(
-                    &if_block,
-                    reg_list,
-                    symbol_table,
-                    stack_offset_counter,
-                    label_counter,
-                ));
-                instruction_list.push(format!("{}:", if_label));
-                *label_counter += 1;
-                instruction_list
+        Statement::ReAssignment(id, expr) => {
+            let final_loc = build_expr(&expr, reg_list, &mut instruction_list, symbol_table);
+            let symbol_info = symbol_table
+                .get(id)
+                .expect("id should already be in symbol table");
+            if !symbol_info.mutable {
+                panic!("Double check for mutable reassignment: shouldn't happen!")
             }
-            _ => panic!("not implemented yet"),
-        },
-        Statement::IfElse(expr, if_block, else_block) => match expr {
-            Expression::Binary(_, _, _) => {
-                let if_else_label = format!("if_else_{}", label_counter);
-                build_cmp_instructions(
-                    expr,
-                    &if_else_label,
-                    &mut instruction_list,
-                    symbol_table,
-                    reg_list,
-                );
-                instruction_list.append(&mut build_statement(
-                    &if_block,
-                    reg_list,
-                    symbol_table,
-                    stack_offset_counter,
-                    label_counter,
-                ));
-                instruction_list.push(format!("jmp end_{}", if_else_label));
-                instruction_list.push(format!("{}:", if_else_label));
-                instruction_list.append(&mut build_statement(
-                    &else_block,
-                    reg_list,
-                    symbol_table,
-                    stack_offset_counter,
-                    label_counter,
-                ));
-                instruction_list.push(format!("end_{}:", if_else_label));
-                *label_counter += 1;
-                instruction_list
+            match final_loc {
+                InnerAddrType::Stack => {
+                    instruction_list.push(format!("pop rax"));
+                    instruction_list.push(format!(
+                        "mov qword [rbp - {}], rax",
+                        symbol_info.stack_offset.expect("Should be offset")
+                    ));
+                    instruction_list
+                }
+                InnerAddrType::Reg(reg) => {
+                    instruction_list.push(format!(
+                        "mov qword [rbp - {}], {}",
+                        symbol_info.stack_offset.expect("should be offset"),
+                        reg
+                    ));
+                    instruction_list
+                }
+                InnerAddrType::StackOffset(offset) => {
+                    instruction_list.push(format!("mov rax, qword [rbp - {}]", offset));
+                    instruction_list.push(format!(
+                        "mov qword [rbp - {}], rax",
+                        symbol_info.stack_offset.expect("Should be offset")
+                    ));
+                    instruction_list
+                }
             }
-            _ => panic!("Not implemented yet"),
-        },
+        }
+        Statement::If(expr, if_block) => {
+            let if_label = format!("if_{}", label_counter);
+            build_cmp_instructions(
+                expr,
+                &if_label,
+                &mut instruction_list,
+                symbol_table,
+                reg_list,
+            );
+            instruction_list.push(format!("jmp end_{}", if_label));
+            instruction_list.push(format!("{}:", if_label));
+            instruction_list.append(&mut build_statement(
+                &if_block,
+                reg_list,
+                symbol_table,
+                stack_offset_counter,
+                label_counter,
+            ));
+            instruction_list.push(format!("end_{}:", if_label));
+            *label_counter += 1;
+            instruction_list
+        }
+        Statement::IfElse(expr, if_block, else_block) => {
+            let if_else_label = format!("if_else_{}", label_counter);
+            build_cmp_instructions(
+                expr,
+                &if_else_label,
+                &mut instruction_list,
+                symbol_table,
+                reg_list,
+            );
+            instruction_list.append(&mut build_statement(
+                &else_block,
+                reg_list,
+                symbol_table,
+                stack_offset_counter,
+                label_counter,
+            ));
+            instruction_list.push(format!("jmp end_{}", if_else_label));
+            instruction_list.push(format!("{}:", if_else_label));
+            instruction_list.append(&mut build_statement(
+                &if_block,
+                reg_list,
+                symbol_table,
+                stack_offset_counter,
+                label_counter,
+            ));
+            instruction_list.push(format!("end_{}:", if_else_label));
+            *label_counter += 1;
+            instruction_list
+        }
         Statement::Block(block) => {
             instruction_list.append(&mut build_block(
                 block,
@@ -162,6 +193,31 @@ fn build_statement(
                 stack_offset_counter,
                 label_counter,
             ));
+            instruction_list
+        }
+        Statement::While(expr, while_block) => {
+            let while_label = format!("while_{}", label_counter);
+            instruction_list.push(format!("start_{}:", while_label));
+            let end_while_label = format!("end_while_{}", label_counter);
+            build_cmp_instructions(
+                expr,
+                &while_label,
+                &mut instruction_list,
+                symbol_table,
+                reg_list,
+            );
+            instruction_list.push(format!("jmp {}", end_while_label));
+            instruction_list.push(format!("{}:", while_label));
+            instruction_list.append(&mut build_statement(
+                &while_block,
+                reg_list,
+                symbol_table,
+                stack_offset_counter,
+                label_counter,
+            ));
+            instruction_list.push(format!("jmp start_{}", while_label));
+            instruction_list.push(format!("{}:", end_while_label));
+            *label_counter += 1;
             instruction_list
         }
     }
@@ -190,23 +246,22 @@ fn build_cmp_instructions(
             );
             // Add the cmp instruction using the addresses computed above
             instruction_list.push(format!("cmp {}, {}", left_addr, right_addr));
-            // Match the operation and get the inverse instruction (needed for easy asm layout)
+            // Match the operation and get the instruction
             let jump_instr = match op.lexeme() {
-                "==" => "jne",
-                "!=" => "je",
-                "<" => "jg",
-                ">" => "jl",
-                "<=" => "jge",
-                ">=" => "jle",
+                "==" => "je",
+                "!=" => "jne",
+                "<" => "jl",
+                ">" => "jg",
+                "<=" => "jle",
+                ">=" => "jge",
                 _ => panic!("Should never be a non bool op in if statement expr"),
             };
             // Add the jump instruction for the end of the if block, along with some nice debug
             // comments
             instruction_list.push(format!(
-                "{} {}    ; op is '{}'\n    ; if block",
+                "{} {}\n    ; else block",
                 jump_instr,
                 if_label,
-                op.lexeme()
             ));
         }
         _ => panic!("can;t do this yet"),

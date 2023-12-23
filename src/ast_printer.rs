@@ -26,6 +26,16 @@ pub fn statement_pretty_printer(stmt: &Statement) {
                 block_pretty_printer(&block);
             }
         },
+        Statement::While(expr, block) => {
+            print!("while ");
+            ast_pretty_printer(&expr);
+            print!(" ");
+            statement_pretty_printer(&block)
+        }
+        Statement::ReAssignment(id, expr) => {
+            print!("{} = ", id);
+            ast_pretty_printer(&expr);
+        }
     }
 }
 

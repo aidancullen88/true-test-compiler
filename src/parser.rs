@@ -137,6 +137,17 @@ fn parse_statement(
                     }
                 }
             }
+            "while" => {
+                let (expr, expr_type) = parse_expression(tokens, symbol_table);
+                if expr_type != Type::Bool {
+                    panic!(
+                        "While requires boolean expression at line {}",
+                        token.line_number()
+                    )
+                }
+                let while_block = parse_statement(tokens, symbol_table);
+                Statement::While(expr, Box::new(while_block))
+            }
             "{" => {
                 let block = parse_block(tokens, symbol_table);
                 match tokens.pop_front() {
@@ -151,7 +162,6 @@ fn parse_statement(
                     None => panic!("File ended without closing brace"),
                 }
             }
-            // Parse error: needs handling
             _ => match token.token_type() {
                 TokenType::Identifier => match symbol_table.get(token.lexeme()) {
                     Some(symbol_info) => {
@@ -176,8 +186,7 @@ fn parse_statement(
                                         .expect("Expected semicolon found EOF")
                                         .lexeme()
                                     {
-                                        ";" => Statement::Assignment(
-                                            expr_type,
+                                        ";" => Statement::ReAssignment(
                                             token.lexeme().to_string(),
                                             expr,
                                         ),
@@ -444,7 +453,7 @@ fn parse_primary(
 }
 
 fn lookahead(tokens: &VecDeque<Token>, match_lexeme: &str) -> bool {
-    if let Some(token)= tokens.get(0) {
+    if let Some(token) = tokens.get(0) {
         print!("{} ", token.lexeme());
         println!("{}", match_lexeme);
         if token.lexeme() == match_lexeme {
