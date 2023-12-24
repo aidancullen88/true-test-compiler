@@ -41,7 +41,7 @@ pub fn lexer(mut src: String) -> VecDeque<Token> {
                 src_index += 1;
                 line_index += 1;
             }
-            '+' | '-' | '/' | '*' => {
+            '+' | '-' | '/' | '*' | '%' => {
                 tokens.push_back(consume_token(
                     &mut src,
                     1,

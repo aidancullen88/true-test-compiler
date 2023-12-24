@@ -373,9 +373,9 @@ fn build_expr(
                 "-" => {
                     instruction_list.push(format!("sub {}, {}", left_reg, right_reg));
                 }
-                operation @ ("*" | "/") => {
+                operation @ ("*" | "/" | "%") => {
                     instruction_list.append(&mut build_factor_op(&left_reg, &right_reg, operation))
-                }
+                },
                 operation @ ("==" | "!=" | "<" | ">" | "<=" | ">=") => instruction_list
                     .append(&mut build_comparison_op(&left_reg, &right_reg, operation)),
                 // Other types of op that aren't implemented yet like ^ etc
@@ -488,6 +488,7 @@ fn build_factor_op(left_reg: &str, right_reg: &str, operation: &str) -> Vec<Stri
     let mut op = match operation {
         "*" => vec![format!("mul {}", right_reg)],
         "/" => vec![format!("xor rdx, rdx"), format!("div {}", right_reg)],
+        "%" => vec![format!("xor rdx, rdx"), format!("div {}", right_reg), format!("mov rax, rdx")],
         _ => panic!("Unrecognised factor op {}", operation),
     };
     if left_reg == "rax" {

@@ -1,8 +1,9 @@
+const int top = 20;
 mut int x = 0;
-while x < 5 {
-    if x == 3 {
-        break;
-    } else {
-        x = x + 1;
+mut int y = 0;
+while x < top {
+    x = x + 1;
+    if (x % 3) == 0 {
+        y = y + 1;
     }
 }

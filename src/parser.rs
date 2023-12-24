@@ -372,7 +372,7 @@ fn parse_factor(
     let (mut expr, mut _type) = parse_unary(tokens, symbol_table);
     while let Some(token) = tokens.pop_front() {
         match token.lexeme() {
-            "/" | "*" => {
+            "/" | "*" | "%" => {
                 let (right_expr, right_type) = parse_unary(tokens, symbol_table);
                 if _type == Type::Int && right_type == Type::Int {
                     _type = Type::Int;
@@ -466,8 +466,6 @@ fn parse_primary(
 
 fn lookahead(tokens: &VecDeque<Token>, match_lexeme: &str) -> bool {
     if let Some(token) = tokens.get(0) {
-        print!("{} ", token.lexeme());
-        println!("{}", match_lexeme);
         if token.lexeme() == match_lexeme {
             return true;
         } else {
