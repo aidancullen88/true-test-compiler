@@ -35,7 +35,8 @@ pub fn statement_pretty_printer(stmt: &Statement) {
         Statement::ReAssignment(id, expr) => {
             print!("{} = ", id);
             ast_pretty_printer(&expr);
-        }
+        },
+        Statement::Break => print!("break")
     }
 }
 

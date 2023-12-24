@@ -1,11 +1,8 @@
 mut int x = 0;
-mut int y = 1;
 while x < 5 {
-    if x == 4 {
-        y = y + 1;
-    }
     if x == 3 {
-        y = y + 1;
+        break;
+    } else {
+        x = x + 1;
     }
-    x = x + 1;
 }

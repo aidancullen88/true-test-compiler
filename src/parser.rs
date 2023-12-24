@@ -1,4 +1,4 @@
-use crate::representations::{Block, Expression, Statement, Symbol, Token, TokenType, Type};
+use crate::representations::{Block, Expression, Statement, Symbol, Token, TokenType, Type, Context};
 
 use core::panic;
 use std::collections::{HashMap, VecDeque};
@@ -10,21 +10,21 @@ pub fn parse_tokens(
     let mut statement_list = VecDeque::<Statement>::new();
 
     while tokens.len() != 0 {
-        statement_list.push_back(parse_statement(tokens, symbol_table))
+        statement_list.push_back(parse_statement(tokens, symbol_table, &Context::None))
     }
 
     statement_list
 }
 
-fn parse_block(tokens: &mut VecDeque<Token>, symbol_table: &mut HashMap<String, Symbol>) -> Block {
+fn parse_block(tokens: &mut VecDeque<Token>, symbol_table: &mut HashMap<String, Symbol>, context: &Context) -> Block {
     match tokens.pop_front() {
         Some(token) => {
             tokens.push_front(token);
-            let stmt = parse_statement(tokens, symbol_table);
+            let stmt = parse_statement(tokens, symbol_table, context);
             match lookahead(tokens, "}") {
                 true => return Block::Statement(stmt),
                 false => {
-                    return Block::Block(stmt, Box::new(parse_block(tokens, symbol_table)));
+                    return Block::Block(stmt, Box::new(parse_block(tokens, symbol_table, context)));
                 }
             }
         }
@@ -35,6 +35,7 @@ fn parse_block(tokens: &mut VecDeque<Token>, symbol_table: &mut HashMap<String, 
 fn parse_statement(
     tokens: &mut VecDeque<Token>,
     symbol_table: &mut HashMap<String, Symbol>,
+    context: &Context,
 ) -> Statement {
     if let Some(token) = tokens.pop_front() {
         match token.lexeme() {
@@ -125,14 +126,14 @@ fn parse_statement(
                 if expr_type != Type::Bool {
                     panic!("Must be boolean expression!");
                 }
-                let if_block = parse_statement(tokens, symbol_table);
+                let if_block = parse_statement(tokens, symbol_table, context);
                 match lookahead(tokens, "else") {
                     false => return Statement::If(expr, Box::new(if_block)),
                     true => {
                         tokens
                             .pop_front()
                             .expect("Already checked that a token exists");
-                        let else_block = parse_statement(tokens, symbol_table);
+                        let else_block = parse_statement(tokens, symbol_table, context);
                         return Statement::IfElse(expr, Box::new(if_block), Box::new(else_block));
                     }
                 }
@@ -145,11 +146,22 @@ fn parse_statement(
                         token.line_number()
                     )
                 }
-                let while_block = parse_statement(tokens, symbol_table);
+                let while_block = parse_statement(tokens, symbol_table, &Context::While);
                 Statement::While(expr, Box::new(while_block))
+            },
+            "break" => {
+                if context != &Context::While {
+                    panic!("Break statements are only valid in while loops! at {}", token.line_number())
+                }
+                match tokens.pop_front().expect("Unexcepted EOF: expected ;").lexeme() {
+                    ";" => {
+                        return Statement::Break
+                    },
+                    wrong => panic!("Expected ';', found {} at line {}", wrong, token.line_number())
+                }
             }
             "{" => {
-                let block = parse_block(tokens, symbol_table);
+                let block = parse_block(tokens, symbol_table, context);
                 match tokens.pop_front() {
                     Some(token) => match token.lexeme() {
                         "}" => return Statement::Block(Box::new(block)),

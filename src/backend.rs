@@ -31,6 +31,7 @@ pub fn build(
             symbol_table,
             &mut stack_offset_counter,
             &mut label_counter,
+            None
         );
         program_instruction_list.append(&mut instruction_list);
     }
@@ -46,6 +47,7 @@ fn build_statement(
     symbol_table: &mut HashMap<String, Symbol>,
     stack_offset_counter: &mut u32,
     label_counter: &mut u32,
+    block_end_label: Option<&str>,
 ) -> Vec<String> {
     // The instruction list for each statement. Appended above into the overall program instruction
     // list
@@ -151,6 +153,7 @@ fn build_statement(
                 symbol_table,
                 stack_offset_counter,
                 label_counter,
+                block_end_label
             ));
             instruction_list.push(format!("end_{}:", if_label));
             *label_counter += 1;
@@ -171,6 +174,7 @@ fn build_statement(
                 symbol_table,
                 stack_offset_counter,
                 label_counter,
+                block_end_label
             ));
             instruction_list.push(format!("jmp end_{}", if_else_label));
             instruction_list.push(format!("{}:", if_else_label));
@@ -180,6 +184,7 @@ fn build_statement(
                 symbol_table,
                 stack_offset_counter,
                 label_counter,
+                block_end_label
             ));
             instruction_list.push(format!("end_{}:", if_else_label));
             *label_counter += 1;
@@ -192,6 +197,7 @@ fn build_statement(
                 symbol_table,
                 stack_offset_counter,
                 label_counter,
+                block_end_label
             ));
             instruction_list
         }
@@ -214,11 +220,20 @@ fn build_statement(
                 symbol_table,
                 stack_offset_counter,
                 label_counter,
+                Some(&end_while_label)
             ));
             instruction_list.push(format!("jmp start_{}", while_label));
             instruction_list.push(format!("{}:", end_while_label));
             *label_counter += 1;
             instruction_list
+        },
+        Statement::Break => {
+            if let Some(end_label) = block_end_label {
+                instruction_list.push(format!("jmp {}", end_label));
+                instruction_list
+            } else {
+                panic!("Somehow a break without a while block to end??")
+            }
         }
     }
 }
@@ -274,6 +289,7 @@ fn build_block(
     symbol_table: &mut HashMap<String, Symbol>,
     stack_offset_counter: &mut u32,
     label_counter: &mut u32,
+    block_end_label: Option<&str>,
 ) -> Vec<String> {
     match block {
         Block::Statement(stmt) => {
@@ -283,6 +299,7 @@ fn build_block(
                 symbol_table,
                 stack_offset_counter,
                 label_counter,
+                block_end_label
             )
         }
         Block::Block(stmt, block) => {
@@ -292,6 +309,7 @@ fn build_block(
                 symbol_table,
                 stack_offset_counter,
                 label_counter,
+                block_end_label
             );
             let mut block_instructions = build_block(
                 block,
@@ -299,6 +317,7 @@ fn build_block(
                 symbol_table,
                 stack_offset_counter,
                 label_counter,
+                block_end_label
             );
             stmt_instructions.append(&mut block_instructions);
             stmt_instructions

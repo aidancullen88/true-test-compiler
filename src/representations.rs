@@ -69,6 +69,12 @@ pub enum Block {
     Block(Statement, Box<Block>),
 }
 
+#[derive(PartialEq)]
+pub enum Context {
+    While,
+    None
+}
+
 #[derive(Debug, Clone)]
 pub enum Statement {
     Assignment(Type, String, Expression),
@@ -77,6 +83,7 @@ pub enum Statement {
     IfElse(Expression, Box<Statement>, Box<Statement>),
     Block(Box<Block>),
     While(Expression, Box<Statement>),
+    Break,
 }
 
 #[derive(Debug, Clone)]
