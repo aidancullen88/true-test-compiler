@@ -1,9 +1,4 @@
-const int top = 20;
-mut int x = 0;
-mut int y = 0;
-while x < top {
-    x = x + 1;
-    if (x % 3) == 0 {
-        y = y + 1;
-    }
-}
+const int x = 3;
+const int* y = &x;
+const int exit = *y + 1;
+

@@ -29,19 +29,19 @@ pub fn lexer(mut src: String) -> VecDeque<Token> {
         //      Look ahead and consume all chars, produce a token and the no.
         //      of chars consumed
         match first_char {
-            ';' | '(' | ')' | '{' | '}' => {
+            ';' | '(' | ')' | '{' | '}' | '[' | ']' | ',' => {
                 tokens.push_back(consume_token(
                     &mut src,
                     1,
                     Type::None,
-                    TokenType::Symbol,
+                    TokenType::Terminal,
                     line_number,
                     line_index,
                 ));
                 src_index += 1;
                 line_index += 1;
             }
-            '+' | '-' | '/' | '*' | '%' => {
+            '+' | '-' | '/' | '*' | '%' | '&' => {
                 tokens.push_back(consume_token(
                     &mut src,
                     1,

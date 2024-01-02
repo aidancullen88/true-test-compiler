@@ -1,4 +1,7 @@
-use crate::representations::{Block, Expression, Statement, Symbol, Token, TokenType, Type, Context};
+use crate::representations::{
+    Assignment, Block, Context, Expression, List, Literal, Statement, Symbol, Token, TokenType,
+    Type,
+};
 
 use core::panic;
 use std::collections::{HashMap, VecDeque};
@@ -16,7 +19,11 @@ pub fn parse_tokens(
     statement_list
 }
 
-fn parse_block(tokens: &mut VecDeque<Token>, symbol_table: &mut HashMap<String, Symbol>, context: &Context) -> Block {
+fn parse_block(
+    tokens: &mut VecDeque<Token>,
+    symbol_table: &mut HashMap<String, Symbol>,
+    context: &Context,
+) -> Block {
     match tokens.pop_front() {
         Some(token) => {
             tokens.push_front(token);
@@ -24,7 +31,10 @@ fn parse_block(tokens: &mut VecDeque<Token>, symbol_table: &mut HashMap<String, 
             match lookahead(tokens, "}") {
                 true => return Block::Statement(stmt),
                 false => {
-                    return Block::Block(stmt, Box::new(parse_block(tokens, symbol_table, context)));
+                    return Block::Block(
+                        stmt,
+                        Box::new(parse_block(tokens, symbol_table, context)),
+                    );
                 }
             }
         }
@@ -60,9 +70,15 @@ fn parse_statement(
                                                 stack_offset: None,
                                                 _type: statement_type.clone(),
                                                 mutable: false,
+                                                init_line: *token.line_number(),
+                                                last_ref: *token.line_number(),
                                             },
                                         );
-                                        Statement::Assignment(statement_type, identifier, expr)
+                                        let assign_type = match statement_type {
+                                            Type::Pointer(_) => Assignment::Pointer(statement_type, identifier),
+                                            _ => Assignment::Value(statement_type, identifier)
+                                        };
+                                        Statement::Assignment(assign_type, expr)
                                     }
                                 }
                                 _ => panic!("Should end with a ;"),
@@ -104,9 +120,15 @@ fn parse_statement(
                                                 stack_offset: None,
                                                 _type: stmt_type.clone(),
                                                 mutable: true,
+                                                init_line: *token.line_number(),
+                                                last_ref: *token.line_number(),
                                             },
                                         );
-                                        Statement::Assignment(stmt_type, id, expr)
+                                        let assign_type = match stmt_type {
+                                            Type::Pointer(_) => Assignment::Pointer(stmt_type, id),
+                                            _ => Assignment::Value(stmt_type, id)
+                                        };
+                                        Statement::Assignment(assign_type, expr)
                                     }
                                 }
                                 _ => panic!("Expected semicolon line {}", token.line_number()),
@@ -148,16 +170,25 @@ fn parse_statement(
                 }
                 let while_block = parse_statement(tokens, symbol_table, &Context::While);
                 Statement::While(expr, Box::new(while_block))
-            },
+            }
             "break" => {
                 if context != &Context::While {
-                    panic!("Break statements are only valid in while loops! at {}", token.line_number())
+                    panic!(
+                        "Break statements are only valid in while loops! at {}",
+                        token.line_number()
+                    )
                 }
-                match tokens.pop_front().expect("Unexcepted EOF: expected ;").lexeme() {
-                    ";" => {
-                        return Statement::Break
-                    },
-                    wrong => panic!("Expected ';', found {} at line {}", wrong, token.line_number())
+                match tokens
+                    .pop_front()
+                    .expect("Unexcepted EOF: expected ;")
+                    .lexeme()
+                {
+                    ";" => return Statement::Break,
+                    wrong => panic!(
+                        "Expected ';', found {} at line {}",
+                        wrong,
+                        token.line_number()
+                    ),
                 }
             }
             "{" => {
@@ -198,10 +229,21 @@ fn parse_statement(
                                         .expect("Expected semicolon found EOF")
                                         .lexeme()
                                     {
-                                        ";" => Statement::ReAssignment(
-                                            token.lexeme().to_string(),
-                                            expr,
-                                        ),
+                                        ";" => {
+                                            symbol_table.insert(
+                                                token.lexeme().to_string(),
+                                                Symbol {
+                                                    stack_offset: None,
+                                                    _type: symbol_info._type.clone(),
+                                                    mutable: true,
+                                                    init_line: symbol_info.init_line,
+                                                    last_ref: *token.line_number(),
+                                                },
+                                            );
+                                            let assign_type =
+                                                Assignment::Mutation(token.lexeme().to_string());
+                                            Statement::Assignment(assign_type, expr)
+                                        }
                                         wrong => panic!(
                                             "Expected ';', found {}, on line {}",
                                             wrong,
@@ -241,36 +283,73 @@ fn parse_statement(
 
 fn parse_identifier(tokens: &mut VecDeque<Token>) -> (Type, String) {
     if let Some(token) = tokens.pop_front() {
-        match token.lexeme() {
-            "int" => (
-                Type::Int,
+        let declared_type = parse_type(token.clone());
+        if lookahead(tokens, "*") {
+            tokens.pop_front();
+            return (
+                Type::Pointer(Box::new(declared_type)),
                 tokens
                     .pop_front()
-                    // Parse error: statment needs identifier
-                    .expect("Should always be an id")
+                    .expect("Unexpected EOF: expected symbol")
                     .lexeme()
                     .to_string(),
-            ),
-            "bool" => (
-                Type::Bool,
+            );
+        } else if lookahead(tokens, "[") {
+            tokens.pop_front();
+            let array_length_token = tokens
+                .pop_front()
+                .expect("Unexpected EOF: expected list length");
+            let array_length: u64 = if array_length_token.token_type() == &TokenType::Literal {
+                array_length_token.lexeme().parse().unwrap()
+            } else {
+                panic!("Array length specifier must be a literal!");
+            };
+            if tokens
+                .pop_front()
+                .expect("Unexpected EOF: expected ]")
+                .lexeme()
+                != "]"
+            {
+                panic!(
+                    "Unexpected character in array type at line: {}",
+                    token.line_number()
+                )
+            };
+            return (
+                Type::Pointer(Box::new(Type::Array(Box::new(declared_type), array_length))),
                 tokens
                     .pop_front()
-                    // Parse error: statement needs identifier
-                    .expect("Should always be an id")
+                    .expect("Unexpected EOF: expected symbol")
                     .lexeme()
                     .to_string(),
-            ),
-            // Type error: unrecgonised type
-            _ => panic!(
-                "Unrecognised type \"{}\" at {}:{}",
-                token.lexeme(),
-                token.line_number(),
-                token.line_index()
-            ),
+            );
+        } else {
+            return (
+                declared_type,
+                tokens
+                    .pop_front()
+                    .expect("Unexpected EOF: expected symbol")
+                    .lexeme()
+                    .to_string(),
+            );
         }
     } else {
         // Parse error: can't have let without a token
         panic!("Whoops, no id to parse")
+    }
+}
+
+fn parse_type(token: Token) -> Type {
+    match token.lexeme() {
+        "int" => Type::Int,
+        "bool" => Type::Bool,
+        // Type error: unrecgonised type
+        _ => panic!(
+            "Unrecognised type \"{}\" at {}:{}",
+            token.lexeme(),
+            token.line_number(),
+            token.line_index()
+        ),
     }
 }
 
@@ -325,7 +404,10 @@ fn parse_comparision(
                     expr = Expression::Binary(Box::new(expr), token, Box::new(right_expr));
                 } else {
                     // Type error: mismatched types in expr
-                    panic!("unsupported types for comparision expression")
+                    panic!(
+                        "unsupported types {:?}:{:?} for comparision expression",
+                        _type, right_type
+                    )
                 }
             }
             _ => {
@@ -347,6 +429,7 @@ fn parse_term(
         match token.lexeme() {
             "+" | "-" => {
                 let (right_expr, right_type) = parse_factor(tokens, symbol_table);
+                println!("{:#?} == {:#?}", _type, right_type);
                 if _type == Type::Int && right_type == Type::Int {
                     _type = Type::Int;
                     expr = Expression::Binary(Box::new(expr), token, Box::new(right_expr));
@@ -397,12 +480,35 @@ fn parse_unary(
     symbol_table: &HashMap<String, Symbol>,
 ) -> (Expression, Type) {
     let first_token = &tokens[0];
+
     match first_token.lexeme() {
         "-" => {
-            // Parse error: can't have a unary op without a literal/id
-            let op = tokens.pop_front().expect("Should be at least 1 element");
-            let (expr, _type) = parse_expression(tokens, symbol_table);
+            let op = tokens.pop_front().expect("Should be op here");
+            let (expr, _type) = parse_unary(tokens, symbol_table);
             (Expression::Unary(op, Box::new(expr)), _type)
+        }
+        "&" => {
+            let op = tokens.pop_front().expect("Should be op here");
+            let (expr, _type) = parse_unary(tokens, symbol_table);
+            match &expr {
+                Expression::Literal(lit) => match lit {
+                    Literal::Symbol(_) => (),
+                    _ => panic!("Must reference a variable in memory"),
+                },
+                _ => panic!("Cannot reference a temporary expression"),
+            }
+            let pointer_type = Type::Pointer(Box::new(_type));
+            (Expression::Unary(op, Box::new(expr)), pointer_type)
+        }
+        "*" => {
+            let op = tokens.pop_front().expect("Should be op here");
+            let (expr, _type) = parse_unary(tokens, symbol_table);
+            println!("inner unary type = {:#?}", _type);
+            let inner_type = match _type {
+                Type::Pointer(inner_type) => inner_type,
+                wrong => panic!("{:?} cannot be dereferenced!", wrong),
+            };
+            (Expression::Unary(op, Box::new(expr)), *inner_type)
         }
         _ => parse_primary(tokens, symbol_table),
     }
@@ -416,15 +522,22 @@ fn parse_primary(
         match token.token_type() {
             TokenType::Identifier => match symbol_table.get(token.lexeme()) {
                 Some(symbol_info) => {
-                    return (Expression::Literal(token), symbol_info._type.clone())
+                    return (
+                        Expression::Literal(Literal::Symbol(token)),
+                        symbol_info._type.clone(),
+                    )
                 }
                 None => panic!("Unrecognised identifier {} in expr", token.lexeme()),
             },
-            TokenType::Literal | TokenType::Symbol => {
+            TokenType::Literal | TokenType::Terminal => {
                 match token._type() {
-                    Type::Bool | Type::Int => {
+                    Type::Bool => {
                         let _type = token._type().clone();
-                        return (Expression::Literal(token), _type);
+                        return (Expression::Literal(Literal::Bool(token)), _type);
+                    }
+                    Type::Int => {
+                        let _type = token._type().clone();
+                        return (Expression::Literal(Literal::Int(token)), _type);
                     }
                     _ => match token.lexeme() {
                         "(" => {
@@ -447,7 +560,29 @@ fn parse_primary(
                             }
                         }
                         // Actual error: how is there another token type here?
-                        _ => panic!("unrecognised primary token!"),
+                        "[" => {
+                            println!("Parsing list!");
+                            let (list, list_type, list_length) =
+                                parse_list_literal(tokens, symbol_table);
+                            println!("{:#?}", list);
+                            match tokens
+                                .pop_front()
+                                .expect("Unexpected EOF: expected ']'")
+                                .lexeme()
+                            {
+                                "]" => (
+                                    Expression::Literal(Literal::List(Box::new(list))),
+                                    Type::Pointer(Box::new(Type::Array(
+                                        Box::new(list_type),
+                                        list_length,
+                                    ))),
+                                ),
+                                wrong => {
+                                    panic!("Unexpected token {} at end of list literal", wrong)
+                                }
+                            }
+                        }
+                        wrong => panic!("unrecognised primary token '{}'", wrong),
                     },
                 }
             }
@@ -464,8 +599,42 @@ fn parse_primary(
     }
 }
 
+fn parse_list_literal(
+    tokens: &mut VecDeque<Token>,
+    symbol_table: &HashMap<String, Symbol>,
+) -> (List, Type, u64) {
+    let (first_expr, lit_type) = parse_primary(tokens, symbol_table);
+    let first_literal = match first_expr {
+        Expression::Literal(first_literal) => first_literal,
+        _ => panic!("List literal must only contain literals"),
+    };
+    let mut external_count = 1;
+    if lookahead(tokens, "]") {
+        return (List::Literal(first_literal), lit_type, external_count);
+    }
+    match tokens
+        .pop_front()
+        .expect("Unexpected EOF: expected ','")
+        .lexeme()
+    {
+        "," => (),
+        wrong => panic!("Unexpected token {} in list literal, expected ','", wrong),
+    }
+    let (next_list, next_list_type, internal_count) = parse_list_literal(tokens, symbol_table);
+    external_count += internal_count;
+    if lit_type != next_list_type {
+        panic!("TypeError: List must be uniform types",)
+    }
+    return (
+        List::List(first_literal, Box::new(next_list)),
+        lit_type,
+        external_count,
+    );
+}
+
 fn lookahead(tokens: &VecDeque<Token>, match_lexeme: &str) -> bool {
     if let Some(token) = tokens.get(0) {
+        println!("Token: {}, match: {}", token.lexeme(), match_lexeme);
         if token.lexeme() == match_lexeme {
             return true;
         } else {

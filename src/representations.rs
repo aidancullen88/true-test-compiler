@@ -51,6 +51,8 @@ pub enum Type {
     Int,
     Bool,
     None,
+    Pointer(Box<Type>),
+    Array(Box<Type>, u64),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -60,7 +62,7 @@ pub enum TokenType {
     Literal,
     Operator,
     Assignment,
-    Symbol,
+    Terminal,
 }
 
 #[derive(Debug, Clone)]
@@ -72,13 +74,12 @@ pub enum Block {
 #[derive(PartialEq)]
 pub enum Context {
     While,
-    None
+    None,
 }
 
 #[derive(Debug, Clone)]
 pub enum Statement {
-    Assignment(Type, String, Expression),
-    ReAssignment(String, Expression),
+    Assignment(Assignment, Expression),
     If(Expression, Box<Statement>),
     IfElse(Expression, Box<Statement>, Box<Statement>),
     Block(Box<Block>),
@@ -86,24 +87,56 @@ pub enum Statement {
     Break,
 }
 
+#[derive(Clone, Debug)]
+pub enum Assignment {
+    Value(Type, String),
+    Pointer(Type, String),
+    Mutation(String),
+}
+
 #[derive(Debug, Clone)]
 pub enum Expression {
     Binary(Box<Expression>, Token, Box<Expression>),
     Unary(Token, Box<Expression>),
-    Literal(Token),
+    Literal(Literal),
     Group(Token, Box<Expression>, Token),
+}
+
+#[derive(Debug, Clone)]
+pub enum Literal {
+    Int(Token),
+    Bool(Token),
+    Symbol(Token),
+    List(Box<List>),
+}
+
+#[derive(Debug, Clone)]
+pub enum List {
+    Literal(Literal),
+    List(Literal, Box<List>),
 }
 
 #[derive(Debug)]
 pub struct Symbol {
-    pub stack_offset: Option<u32>,
+    pub stack_offset: Option<u64>,
     pub _type: Type,
     pub mutable: bool,
+    pub init_line: usize,
+    pub last_ref: usize,
 }
 
 #[derive(Debug)]
 pub enum InnerAddrType {
     Reg(String),
     Stack,
-    StackOffset(u32),
+    StackOffset(u64),
+}
+
+impl InnerAddrType {
+    pub fn is_memory(&self) -> bool {
+        match self {
+            InnerAddrType::StackOffset(_) => true,
+            _ => false,
+        }
+    }
 }

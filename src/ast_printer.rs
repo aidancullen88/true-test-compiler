@@ -1,9 +1,29 @@
-use crate::representations::{Block, Expression, Statement};
+use crate::representations::{Assignment, Block, Expression, List, Literal, Statement, Type};
+
+fn type_printer(ttp: &Type) {
+    match ttp {
+        Type::Bool | Type::Int | Type::None => print!("{:?}", ttp),
+        Type::Pointer(inner_ttp) => {
+            print!("*");
+            type_printer(inner_ttp)
+        }
+        Type::Array(inner_ttp, size) => {
+            type_printer(inner_ttp);
+            print!("[{}]", size)
+        }
+    }
+}
 
 pub fn statement_pretty_printer(stmt: &Statement) {
     match stmt {
-        Statement::Assignment(t, id, expr) => {
-            print!("{} ({:#?}) = ", id, t);
+        Statement::Assignment(assign, expr) => {
+            match assign {
+                Assignment::Value(_type, symbol) | Assignment::Pointer(_type, symbol) => {
+                    type_printer(_type);
+                    print!(" {} = ", symbol);
+                }
+                Assignment::Mutation(symbol) => print!("{} = ", symbol),
+            }
             ast_pretty_printer(&expr);
         }
         Statement::If(expr, block) => {
@@ -32,11 +52,7 @@ pub fn statement_pretty_printer(stmt: &Statement) {
             print!(" ");
             statement_pretty_printer(&block)
         }
-        Statement::ReAssignment(id, expr) => {
-            print!("{} = ", id);
-            ast_pretty_printer(&expr);
-        },
-        Statement::Break => print!("break")
+        Statement::Break => print!("break"),
     }
 }
 
@@ -56,6 +72,30 @@ pub fn block_pretty_printer(block: &Block) {
     }
 }
 
+fn list_pretty_printer(list: &List) {
+    match list {
+        List::Literal(literal) => literal_pretty_printer(literal),
+        List::List(literal, list) => {
+            literal_pretty_printer(literal);
+            print!(", ");
+            list_pretty_printer(list);
+        }
+    }
+}
+
+fn literal_pretty_printer(literal: &Literal) {
+    match literal {
+        Literal::Bool(token) | Literal::Int(token) | Literal::Symbol(token) => {
+            print!("{}", token.lexeme())
+        }
+        Literal::List(list) => {
+            print!("[");
+            list_pretty_printer(list);
+            print!("]");
+        }
+    }
+}
+
 pub fn ast_pretty_printer(expr: &Expression) {
     match expr {
         Expression::Binary(left, op, right) => {
@@ -71,9 +111,7 @@ pub fn ast_pretty_printer(expr: &Expression) {
             print!("{}", op.lexeme());
             ast_pretty_printer(right);
         }
-        Expression::Literal(token) => {
-            print!("{}", &token.lexeme());
-        }
+        Expression::Literal(literal) => literal_pretty_printer(literal),
         Expression::Group(_, inner_expr, _) => {
             print!("group[");
             ast_pretty_printer(inner_expr);
